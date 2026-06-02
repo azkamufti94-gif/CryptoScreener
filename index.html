@@ -488,12 +488,12 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 
 /* ─── L/S TREND ROW ─── */
 .ls-trend-row {
-  display: grid; grid-template-columns: repeat(3,1fr); gap: 5px;
+  display: grid; grid-template-columns: 2fr 1fr; gap: 5px;
   margin-bottom: 8px;
 }
 .ls-box {
   background: var(--bg3); border-radius: var(--radius-sm);
-  padding: 5px 6px; text-align: center;
+  padding: 6px 8px; text-align: left;
   border: 1px solid transparent;
   transition: all 0.15s;
 }
@@ -502,7 +502,7 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
 .ls-box.ls-neutral { border-color: var(--border); }
 .ls-box.ls-bull    { border-color: rgba(38,166,154,0.3); background: rgba(38,166,154,0.06); }
 .ls-lbl { font-size: 8px; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; font-family: var(--mono); }
-.ls-val { font-size: 12px; font-weight: 700; margin-top: 2px; font-family: var(--mono); }
+.ls-val { font-size: 13px; font-weight: 700; margin-top: 2px; font-family: var(--mono); }
 .ls-sub { font-size: 8px; margin-top: 1px; }
 
 /* Reasons */
@@ -1052,31 +1052,37 @@ function parseOCData(ocRaw) {
   // ocRaw = { oi, takerLS, globalLS, topLS }
   // Semua bisa null jika tidak tersedia
   const result = {
-    oiVal:            null,
-    takerBuyR:        null,
-    takerSellR:       null,
-    globalLong:       null,
-    globalShort:      null,
-    globalLSR:        null,
-    globalLSRPrev:    null,   // V9: previous candle ratio
-    globalLSRDelta:   null,   // V9: direction of change
-    topLong:          null,
-    topShort:         null,
-    topLSR:           null,
-    topLSRPrev:       null,   // V9
-    topLSRDelta:      null,   // V9
+    oiVal:              null,
+    takerBuyR:          null,
+    takerSellR:         null,
+    globalLong:         null,
+    globalShort:        null,
+    globalLSR:          null,
+    globalLSRPrev:      null,
+    globalLSRDelta:     null,
+    topLong:            null,
+    topShort:           null,
+    topLSR:             null,
+    topLSRPrev:         null,
+    topLSRDelta:        null,
     // Derived flags
-    sellDom:          false,
-    hiddenDist:       false,
-    whaleExit:        false,
-    retailOT:         false,
-    // V9 NEW — L/S trend flags
-    crowdShortDom:    false,  // Majority account short dominan (ratio < 0.85)
-    crowdFlipToLong:  false,  // Crowd mulai flip ke long = SHORT window terbuka
-    crowdFlipToShort: false,  // Crowd makin short = SQUEEZE RISK naik
-    squeezeFuelHigh:  false,  // Ratio < 0.75 = squeeze fuel ekstrem
-    smartMoneyShort:  false,  // Top trader makin short = konfirmasi bearish
-    squeezeDivergence:false,  // Crowd short tapi top trader long = squeeze belum selesai
+    sellDom:            false,
+    hiddenDist:         false,
+    whaleExit:          false,
+    retailOT:           false,
+    // V9 L/S trend flags
+    crowdShortDom:      false,
+    crowdFlipToLong:    false,   // either sustained or early
+    crowdFlipSustained: false,   // 3-candle confirmed flip — paling kuat
+    crowdFlipEarly:     false,   // 2-candle early warning
+    crowdFlipToShort:   false,
+    squeezeFuelHigh:    false,
+    smartMoneyShort:    false,
+    squeezeDivergence:  false,
+    // Raw data untuk display
+    lsRatioHistory:     null,    // array ratio 5 candle terakhir
+    lsTrend3:           null,    // 'up' | 'down' | 'mixed'
+    lsTrendStrength:    null,    // 'strong' | 'moderate' | 'weak' | 'strong_down' | 'moderate_down'
   };
 
   if (!ocRaw) return result;
@@ -1091,7 +1097,7 @@ function parseOCData(ocRaw) {
     }
   }
 
-  // Global L/S ratio — termasuk trend direction (KEY INSIGHT V9)
+  // Global L/S ratio — termasuk 3-candle sustained trend detection (V9 UPGRADE)
   if (ocRaw.globalLS && ocRaw.globalLS.length > 0) {
     const arr    = ocRaw.globalLS;
     const latest = arr[arr.length - 1];
@@ -1099,28 +1105,77 @@ function parseOCData(ocRaw) {
     result.globalShort = parseFloat(latest.shortAccount || 0);
     result.globalLSR   = parseFloat(latest.longShortRatio || 0);
 
-    // ── TREND DIRECTION (V9 NEW) ──
-    // Mengukur arah perubahan ratio antar candle — lebih penting dari nilai absolut
+    // ── 3-CANDLE SUSTAINED FLIP DETECTION (V9 UPGRADE) ──
+    // Satu candle bisa noise — 3 candle konsisten = sinyal valid
     if (arr.length >= 2) {
       const prev = arr[arr.length - 2];
-      const prevLSR  = parseFloat(prev.longShortRatio  || 0);
-      const prevLong = parseFloat(prev.longAccount     || 0);
-      result.globalLSRPrev = prevLSR;
-      result.globalLSRDelta = result.globalLSR - prevLSR;  // positif = lebih banyak long, negatif = lebih banyak short
-
-      // Majority SHORT (ratio < 0.85 = short dominan)
-      result.crowdShortDom = result.globalLSR < 0.85;
-      // Majority SHORT + ratio NAIK (short mulai tutup/flip ke long) = "CROWD FLIP" ke long
-      // Ini sinyal crowd mulai kapitulasi short = squeeze window CLOSING, SHORT opportunity
-      result.crowdFlipToLong = result.globalLSRDelta > 0.05 && result.globalLSR > 0.85 && prevLSR < 0.90;
-      // Crowd makin SHORT (ratio turun terus) saat harga naik = SQUEEZE RISK, JANGAN SHORT
-      result.crowdFlipToShort = result.globalLSRDelta < -0.05 && result.globalLSR < 0.90;
-      // Extreme short crowd (< 0.75) = squeeze risk paling tinggi
-      result.squeezeFuelHigh = result.globalLSR < 0.75;
+      const prevLSR  = parseFloat(prev.longShortRatio || 0);
+      result.globalLSRPrev  = prevLSR;
+      result.globalLSRDelta = result.globalLSR - prevLSR;
     }
+
+    // Kumpulkan semua ratio dari candle yang tersedia (max 5)
+    const ratios = arr.map(c => parseFloat(c.longShortRatio || 0));
+    const n = ratios.length;
+
+    // Hitung arah setiap candle (naik/turun)
+    const deltas = [];
+    for (let i = 1; i < n; i++) {
+      deltas.push(ratios[i] - ratios[i-1]);
+    }
+
+    // Cek 3 candle terakhir apakah konsisten naik (flip sustained)
+    const last3Deltas = deltas.slice(-3);
+    const last2Deltas = deltas.slice(-2);
+
+    // Sustained NAIK = minimal 2 dari 3 candle terakhir positif + total naik
+    const risingCount3  = last3Deltas.filter(d => d > 0).length;
+    const risingCount2  = last2Deltas.filter(d => d > 0).length;
+    const totalDelta3   = ratios[n-1] - ratios[Math.max(0, n-4)]; // perubahan 3 candle
+    const totalDelta2   = ratios[n-1] - ratios[Math.max(0, n-3)]; // perubahan 2 candle
+
+    // Sustained TURUN = minimal 2 dari 3 candle terakhir negatif
+    const fallingCount3 = last3Deltas.filter(d => d < 0).length;
+    const fallingCount2 = last2Deltas.filter(d => d < 0).length;
+
+    // ── FLAG DEFINITIONS ──
+
+    // Crowd short dominan (ratio < 0.85)
+    result.crowdShortDom = result.globalLSR < 0.85;
+
+    // Squeeze fuel ekstrem (< 0.75)
+    result.squeezeFuelHigh = result.globalLSR < 0.75;
+
+    // Crowd ratio makin turun (crowd makin short) = squeeze risk naik
+    // Perlu 2+ candle konsisten turun untuk avoid noise
+    result.crowdFlipToShort = fallingCount2 >= 2 && totalDelta2 < -0.03 && result.globalLSR < 0.90;
+
+    // CROWD FLIP KE LONG — 3-candle sustained (sinyal paling kuat)
+    // Syarat: ratio naik 3 candle konsisten + total naik signifikan + melewati threshold
+    result.crowdFlipSustained = (
+      risingCount3 >= 3 &&         // 3/3 candle naik — paling kuat
+      totalDelta3 > 0.05 &&        // total naik minimal 0.05
+      result.globalLSR > 0.80      // ratio sudah melewati batas awal flip
+    );
+
+    // CROWD FLIP AWAL — 2 candle cukup untuk early warning
+    result.crowdFlipEarly = (
+      !result.crowdFlipSustained && // belum sustained
+      risingCount2 >= 2 &&          // 2/2 candle terakhir naik
+      totalDelta2 > 0.03 &&         // total naik minimal 0.03
+      result.globalLSR > 0.78       // mendekati threshold
+    );
+
+    // Backward compat — crowdFlipToLong = either sustained or early
+    result.crowdFlipToLong = result.crowdFlipSustained || result.crowdFlipEarly;
+
+    // Simpan data mentah untuk display
+    result.lsRatioHistory = ratios;  // array semua ratio
+    result.lsTrend3 = risingCount3 >= 2 ? 'up' : fallingCount3 >= 2 ? 'down' : 'mixed';
+    result.lsTrendStrength = risingCount3 === 3 ? 'strong' : risingCount3 >= 2 ? 'moderate' : fallingCount3 === 3 ? 'strong_down' : fallingCount3 >= 2 ? 'moderate_down' : 'weak';
   }
 
-  // Top Trader L/S (Positions)
+  // Top Trader L/S (Positions) — 3-candle trend
   if (ocRaw.topLS && ocRaw.topLS.length > 0) {
     const arr = ocRaw.topLS;
     const latest = arr[arr.length - 1];
@@ -1128,27 +1183,31 @@ function parseOCData(ocRaw) {
     result.topShort = parseFloat(latest.shortAccount || 0);
     result.topLSR   = parseFloat(latest.longShortRatio || 0);
 
-    // Whale exit: top trader L/S ratio turun dari candle sebelumnya
     if (arr.length >= 2) {
       const prev = arr[arr.length - 2];
-      const prevLSR = parseFloat(prev.longShortRatio || 0);
+      const prevLSR  = parseFloat(prev.longShortRatio || 0);
       result.topLSRPrev  = prevLSR;
       result.topLSRDelta = result.topLSR - prevLSR;
-      result.whaleExit   = result.topLSR < prevLSR * 0.97; // turun >3%
-      // Top trader makin SHORT = smart money short = konfirmasi SHORT valid
-      result.smartMoneyShort = result.topShort > 0.55 && result.topLSRDelta < 0;
+      result.whaleExit   = result.topLSR < prevLSR * 0.97;
+
+      // 3-candle top trader trend
+      const topRatios = arr.map(c => parseFloat(c.longShortRatio || 0));
+      const topDeltas = [];
+      for (let i = 1; i < topRatios.length; i++) topDeltas.push(topRatios[i] - topRatios[i-1]);
+      const topLast3 = topDeltas.slice(-3);
+      const topFalling3 = topLast3.filter(d => d < 0).length;
+
+      // Smart money short: top trader ratio turun 2+ candle berturut + short > 55%
+      result.smartMoneyShort = result.topShort > 0.55 && topFalling3 >= 2;
+      // Whale exit sustained: ratio turun 2+ candle
+      result.whaleExitSustained = topFalling3 >= 2 && result.topLSRDelta < 0;
     }
 
-    // Retail overtrap: global long tinggi tapi top trader mulai short
-    if (result.globalLong > 0.55 && result.topShort > 0.50) {
-      result.retailOT = true;
-    }
+    // Retail overtrap
+    if (result.globalLong > 0.55 && result.topShort > 0.50) result.retailOT = true;
 
-    // DIVERGENCE KUAT: global crowd shorting (ratio rendah) tapi top trader masih long
-    // = smart money hold long, squeeze belum selesai
-    if (result.crowdShortDom && result.topLong > 0.55) {
-      result.squeezeDivergence = true;
-    }
+    // Squeeze divergence: crowd short dominan tapi top trader masih long
+    if (result.crowdShortDom && result.topLong > 0.55) result.squeezeDivergence = true;
   }
 
   // OI
@@ -1235,12 +1294,10 @@ function calcConviction(item, signal) {
     if (item.upperWick > 50)     { score+=2; reasons.push(`Upper wick ${item.upperWick}% = rejection kuat`); }
     else if (item.upperWick > 30){ score+=1; reasons.push(`Upper wick ${item.upperWick}%`); }
 
-    // ── V9 ON-CHAIN: L/S RATIO TREND (SINYAL PRIMER BARU) ──
-    // Insight: arah perubahan ratio lebih penting dari nilai absolut
-    // Crowd SHORT dominan = squeeze risk = BLOCKER untuk SHORT
-    // Crowd FLIP ke long = crowd kapitulasi = SHORT window terbuka
+    // ── V9 ON-CHAIN: L/S RATIO TREND (SINYAL PRIMER) ──
+    // 3-candle sustained flip = konfirmasi kuat, early flip = early warning
 
-    // SQUEEZE RISK BLOCKER: crowd masih short dominan + makin short = harga cenderung berlawanan (naik)
+    // SQUEEZE RISK BLOCKER
     if (oc.squeezeFuelHigh) {
       score -= 3;
       reasons.unshift('🚨 SQUEEZE FUEL TINGGI: ratio <0.75, crowd short ekstrem — SHORT BERISIKO TINGGI');
@@ -1249,23 +1306,25 @@ function calcConviction(item, signal) {
       reasons.unshift('⚠️ Crowd makin short = squeeze risk naik — tunggu crowd flip');
     }
 
-    // KONFIRMASI SHORT: crowd mulai flip ke long = crowd kapitulasi short
-    // Ini adalah timing signal terbaik untuk SHORT entry
-    if (oc.crowdFlipToLong) {
-      score += 3;
-      reasons.push('✅ CROWD FLIP: majority account mulai tutup short → flip long = SHORT window optimal');
+    // KONFIRMASI SHORT: 3-candle sustained flip = timing optimal
+    if (oc.crowdFlipSustained) {
+      score += 4;
+      reasons.push(`✅ CROWD FLIP CONFIRMED (3 candle sustained): ratio ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} — SHORT WINDOW OPTIMAL`);
+    } else if (oc.crowdFlipEarly) {
+      score += 2;
+      reasons.push(`⚡ Crowd flip early (2 candle): ratio menuju ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} — SHORT window terbuka, monitor`);
     }
 
-    // Divergensi squeeze: crowd short tapi top trader masih long = squeeze belum selesai
+    // Divergensi squeeze: crowd short tapi top trader long = squeeze belum selesai
     if (oc.squeezeDivergence) {
       score -= 2;
       reasons.push('🔄 Squeeze divergence: top trader long, crowd short = squeeze belum selesai');
     }
 
-    // Smart money (top trader) makin short = konfirmasi bearish dari sisi kanan
+    // Smart money (top trader) sustained short = konfirmasi kuat
     if (oc.smartMoneyShort) {
-      score += 2;
-      reasons.push('🐋 Smart money (top trader) makin short = konfirmasi distribusi');
+      score += oc.whaleExitSustained ? 3 : 2;
+      reasons.push(`🐋 Smart money short sustained = distribusi terkonfirmasi dari atas`);
     }
 
     // ── V8 ON-CHAIN BOOST (SHORT CONTRA) ──
@@ -1516,28 +1575,28 @@ async function fetchOnChain(sym) {
       );
     }
 
-    // Taker L/S ratio (5m, limit 1 = candle terakhir saja)
+    // Taker L/S ratio — ambil 5 candle untuk trend detection
     if (v8Modes.taker) {
       p.push(
-        fetchJSON(`${baseF}/takerlongshortRatio?symbol=${sym}&period=5m&limit=3`)
+        fetchJSON(`${baseF}/takerlongshortRatio?symbol=${sym}&period=5m&limit=5`)
           .then(d => { result.takerLS = Array.isArray(d) ? d[d.length-1] : d; })
           .catch(() => {})
       );
     }
 
-    // Global L/S ratio
+    // Global L/S ratio — 5 candle untuk 3-candle sustained flip detection
     if (v8Modes.ls) {
       p.push(
-        fetchJSON(`${baseF}/globalLongShortAccountRatio?symbol=${sym}&period=5m&limit=3`)
+        fetchJSON(`${baseF}/globalLongShortAccountRatio?symbol=${sym}&period=5m&limit=5`)
           .then(d => { result.globalLS = d; })
           .catch(() => {})
       );
     }
 
-    // Top trader L/S (Positions) — WRD proxy terbaik
+    // Top trader L/S (Positions) — 5 candle untuk trend detection
     if (v8Modes.tls) {
       p.push(
-        fetchJSON(`${baseF}/topLongShortPositionRatio?symbol=${sym}&period=5m&limit=3`)
+        fetchJSON(`${baseF}/topLongShortPositionRatio?symbol=${sym}&period=5m&limit=5`)
           .then(d => { result.topLS = d; })
           .catch(() => {})
       );
@@ -1892,10 +1951,11 @@ function makeCard(c, ccls) {
   if (oc.whaleExit)  tags.push({t:'WHALE EXIT',c:'t-o'});
   if (oc.retailOT)   tags.push({t:'RETAIL OT',c:'t-p'});
   // V9: L/S trend tags
-  if (oc.squeezeFuelHigh)   tags.push({t:'🚨 SQZ FUEL',c:'t-o'});
-  if (oc.crowdFlipToLong)   tags.push({t:'⚡ CROWD FLIP',c:'t-r'});
-  if (oc.squeezeDivergence) tags.push({t:'DIVG SQZ',c:'t-o'});
-  if (oc.smartMoneyShort)   tags.push({t:'SM SHORT',c:'t-r'});
+  if (oc.squeezeFuelHigh)    tags.push({t:'🚨 SQZ FUEL',c:'t-o'});
+  if (oc.crowdFlipSustained) tags.push({t:'✅ FLIP 3C',c:'t-r'});
+  else if (oc.crowdFlipEarly)tags.push({t:'⚡ FLIP 2C',c:'t-o'});
+  if (oc.squeezeDivergence)  tags.push({t:'DIVG SQZ',c:'t-o'});
+  if (oc.smartMoneyShort)    tags.push({t:'SM SHORT↓',c:'t-r'});
   if (oc.takerBuyR > 0.60) tags.push({t:'BUY DOM',c:'t-g'});
   // Thin liquidity tags
   const thin = c.thin || {};
@@ -1962,44 +2022,75 @@ function makeCard(c, ccls) {
 
   // ── V9: SQUEEZE WARNING / CROWD FLIP BANNER ──
   let lsBannerHtml = '';
-  if (oc.squeezeFuelHigh && (c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT')) {
-    lsBannerHtml = `<div class="squeeze-warn">🚨 SQUEEZE RISK TINGGI — Crowd short ekstrem (ratio ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}). Tunggu crowd flip sebelum entry.</div>`;
-  } else if (oc.crowdShortDom && oc.crowdFlipToShort && (c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT')) {
-    lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd makin short — squeeze risk masih aktif. Ratio: ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} ↓</div>`;
-  } else if (oc.crowdFlipToLong && (c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT')) {
-    lsBannerHtml = `<div class="crowd-flip">⚡ CROWD FLIP — Majority mulai tutup short (ratio ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}). SHORT window terbuka.</div>`;
+  const isShortSignal = c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT';
+  if (isShortSignal) {
+    if (oc.squeezeFuelHigh) {
+      lsBannerHtml = `<div class="squeeze-warn">🚨 SQUEEZE FUEL EKSTREM — Crowd short ratio ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} (< 0.75). Tunggu crowd flip terkonfirmasi sebelum entry.</div>`;
+    } else if (oc.crowdShortDom && oc.crowdFlipToShort) {
+      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd makin short (${oc.lsTrend3 === 'down' ? '3 candle ↓↓↓' : '2 candle ↓↓'}) — squeeze risk aktif. Ratio: ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+    } else if (oc.crowdFlipSustained) {
+      lsBannerHtml = `<div class="crowd-flip">✅ CROWD FLIP CONFIRMED — 3 candle sustained naik → SHORT WINDOW OPTIMAL. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+    } else if (oc.crowdFlipEarly) {
+      lsBannerHtml = `<div class="crowd-flip" style="opacity:0.8;border-color:rgba(239,83,80,0.3)">⚡ CROWD FLIP EARLY — 2 candle naik, monitor. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+    }
   }
 
-  // ── V9: L/S TREND ROW ──
+  // ── V9: L/S TREND ROW dengan mini history ──
   let lsTrendHtml = '';
   if (oc.globalLSR !== null) {
-    const deltaStr  = oc.globalLSRDelta !== null ? (oc.globalLSRDelta >= 0 ? `+${oc.globalLSRDelta.toFixed(2)}` : oc.globalLSRDelta.toFixed(2)) : '—';
-    const deltaClr  = oc.globalLSRDelta > 0 ? 'var(--green)' : oc.globalLSRDelta < 0 ? 'var(--red)' : 'var(--text2)';
-    const trendArrow= oc.globalLSRDelta > 0.01 ? '↑' : oc.globalLSRDelta < -0.01 ? '↓' : '→';
-    const globalBox = oc.squeezeFuelHigh ? 'ls-squeeze' : oc.crowdFlipToLong ? 'ls-flip' : oc.crowdShortDom ? 'ls-squeeze' : 'ls-neutral';
+    // Mini sparkline dari ratio history (max 5 candle)
+    const hist = oc.lsRatioHistory || [];
+    const miniChart = hist.length >= 2 ? hist.map((r, i) => {
+      const isLast = i === hist.length - 1;
+      const prev   = i > 0 ? hist[i-1] : r;
+      const up     = r >= prev;
+      const clr    = isLast ? (up ? '#26a69a' : '#ef5350') : (up ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)');
+      return `<span style="color:${clr};font-size:9px;font-weight:${isLast?'700':'400'}">${r.toFixed(2)}${i < hist.length-1 ? ' → ' : ''}</span>`;
+    }).join('') : '';
+
+    // Strength label
+    const strengthLbl = {
+      'strong':       '↑↑↑ FLIP KUAT',
+      'moderate':     '↑↑ flip',
+      'weak':         '~ mixed',
+      'strong_down':  '↓↓↓ SQZ FUEL',
+      'moderate_down':'↓↓ squeeze',
+    }[oc.lsTrendStrength] || '—';
+    const strengthClr = (oc.lsTrendStrength||'').includes('up') || oc.lsTrendStrength === 'strong' || oc.lsTrendStrength === 'moderate'
+      ? 'var(--red)' : (oc.lsTrendStrength||'').includes('down') ? 'var(--orange)' : 'var(--text3)';
+
+    const deltaStr  = oc.globalLSRDelta !== null
+      ? (oc.globalLSRDelta >= 0 ? `+${oc.globalLSRDelta.toFixed(3)}` : oc.globalLSRDelta.toFixed(3)) : '—';
+    const deltaClr  = oc.globalLSRDelta > 0 ? 'var(--red)' : oc.globalLSRDelta < 0 ? 'var(--orange)' : 'var(--text2)';
+    const trendArrow= oc.lsTrend3 === 'up' ? '↑' : oc.lsTrend3 === 'down' ? '↓' : '→';
+
+    const globalBox = oc.squeezeFuelHigh ? 'ls-squeeze' : oc.crowdFlipSustained ? 'ls-flip' : oc.crowdFlipEarly ? 'ls-flip' : oc.crowdShortDom ? 'ls-squeeze' : 'ls-neutral';
     const topBox    = oc.smartMoneyShort ? 'ls-flip' : oc.squeezeDivergence ? 'ls-squeeze' : oc.topLong > 0.55 ? 'ls-bull' : 'ls-neutral';
-    const topDeltaStr = oc.topLSRDelta !== null ? (oc.topLSRDelta >= 0 ? `+${oc.topLSRDelta.toFixed(2)}` : oc.topLSRDelta.toFixed(2)) : null;
+    const topDeltaStr = oc.topLSRDelta !== null ? (oc.topLSRDelta >= 0 ? `+${oc.topLSRDelta.toFixed(3)}` : oc.topLSRDelta.toFixed(3)) : null;
     const topDeltaClr = oc.topLSRDelta > 0 ? 'var(--green)' : oc.topLSRDelta < 0 ? 'var(--red)' : 'var(--text2)';
-    const topArrow    = oc.topLSRDelta > 0.01 ? '↑' : oc.topLSRDelta < -0.01 ? '↓' : '→';
+    const topArrow    = oc.topLSRDelta > 0.005 ? '↑' : oc.topLSRDelta < -0.005 ? '↓' : '→';
 
     lsTrendHtml = `
     <div class="ls-trend-row">
-      <div class="ls-box ${globalBox}">
-        <div class="ls-lbl">CROWD L/S</div>
-        <div class="ls-val" style="color:${oc.crowdShortDom?'var(--orange)':'var(--green)'}">${oc.globalLSR.toFixed(2)}</div>
-        <div class="ls-sub" style="color:${deltaClr}">${trendArrow} ${deltaStr} ${oc.crowdShortDom?'SHORT DOM':oc.globalLong > 0.55?'LONG DOM':'NETRAL'}</div>
+      <div class="ls-box ${globalBox}" style="grid-column:span 2">
+        <div class="ls-lbl">CROWD L/S TREND (5M)</div>
+        <div style="margin:3px 0 2px;font-size:9px;font-family:var(--mono);line-height:1.4">${miniChart}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="ls-val" style="color:${oc.crowdShortDom?'var(--orange)':'var(--green)'}">${oc.globalLSR.toFixed(3)}</div>
+          <div style="text-align:right">
+            <div style="font-size:9px;color:${deltaClr};font-family:var(--mono)">${trendArrow} ${deltaStr}</div>
+            <div style="font-size:8px;color:${oc.crowdFlipSustained?'var(--red)':oc.crowdFlipEarly?'var(--orange)':oc.crowdShortDom?'var(--orange)':'var(--text3)'}">${
+              oc.crowdFlipSustained ? '✅ FLIP 3C' :
+              oc.crowdFlipEarly     ? '⚡ FLIP 2C' :
+              oc.crowdShortDom      ? (oc.squeezeFuelHigh ? '🚨 SQZ EXT' : '⚠️ SQZ RISK') : 'LONG DOM'
+            }</div>
+          </div>
+        </div>
       </div>
       <div class="ls-box ${topBox}">
         <div class="ls-lbl">TOP TRADER</div>
         <div class="ls-val" style="color:${oc.smartMoneyShort?'var(--red)':oc.squeezeDivergence?'var(--orange)':'var(--text2)'}">${oc.topLSR !== null ? oc.topLSR.toFixed(2) : '—'}</div>
-        <div class="ls-sub" style="color:${topDeltaClr}">${topArrow} ${topDeltaStr || '—'} ${oc.smartMoneyShort?'SM SHORT':oc.squeezeDivergence?'SQUEEZE':oc.whaleExit?'EXIT':''}</div>
-      </div>
-      <div class="ls-box ${oc.squeezeDivergence?'ls-squeeze':oc.crowdFlipToLong?'ls-flip':'ls-neutral'}">
-        <div class="ls-lbl">DIVERGENCE</div>
-        <div class="ls-val" style="font-size:11px;color:${oc.crowdFlipToLong?'var(--red)':oc.squeezeDivergence?'var(--orange)':oc.smartMoneyShort?'var(--red)':'var(--text3)'}">
-          ${oc.crowdFlipToLong?'SHORT ✅':oc.squeezeDivergence?'SQUEEZE⚠️':oc.smartMoneyShort?'BEARISH':oc.crowdShortDom?'SQZ RISK':'—'}
-        </div>
-        <div class="ls-sub" style="color:var(--text3)">${oc.crowdFlipToLong?'Crowd flip':oc.squeezeDivergence?'Top:Long,Crd:Sh':oc.smartMoneyShort?'Smart:Short':''}</div>
+        <div class="ls-sub" style="color:${topDeltaClr}">${topArrow} ${topDeltaStr || '—'} ${oc.smartMoneyShort?'SM↓':oc.squeezeDivergence?'DIVG':oc.whaleExit?'EXIT':''}</div>
       </div>
     </div>`;
   }
