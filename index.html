@@ -2037,46 +2037,43 @@ function makeCard(c, ccls) {
 
   // ── V9: L/S TREND ROW dengan mini history ──
   let lsTrendHtml = '';
-  if (oc.globalLSR !== null) {
-    // Mini sparkline dari ratio history (max 5 candle)
-    const hist = oc.lsRatioHistory || [];
+  if (oc.globalLSR !== null && oc.globalLSR !== undefined) {
+    // Mini sparkline dari ratio history (max 5 candle) — safe toFixed
+    const hist = (oc.lsRatioHistory || []).filter(r => r !== null && r !== undefined && !isNaN(r));
     const miniChart = hist.length >= 2 ? hist.map((r, i) => {
       const isLast = i === hist.length - 1;
       const prev   = i > 0 ? hist[i-1] : r;
       const up     = r >= prev;
       const clr    = isLast ? (up ? '#26a69a' : '#ef5350') : (up ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)');
-      return `<span style="color:${clr};font-size:9px;font-weight:${isLast?'700':'400'}">${r.toFixed(2)}${i < hist.length-1 ? ' → ' : ''}</span>`;
+      const rStr   = (typeof r === 'number' && !isNaN(r)) ? r.toFixed(2) : '—';
+      return `<span style="color:${clr};font-size:9px;font-weight:${isLast?'700':'400'}">${rStr}${i < hist.length-1 ? ' → ' : ''}</span>`;
     }).join('') : '';
 
-    // Strength label
-    const strengthLbl = {
-      'strong':       '↑↑↑ FLIP KUAT',
-      'moderate':     '↑↑ flip',
-      'weak':         '~ mixed',
-      'strong_down':  '↓↓↓ SQZ FUEL',
-      'moderate_down':'↓↓ squeeze',
-    }[oc.lsTrendStrength] || '—';
-    const strengthClr = (oc.lsTrendStrength||'').includes('up') || oc.lsTrendStrength === 'strong' || oc.lsTrendStrength === 'moderate'
-      ? 'var(--red)' : (oc.lsTrendStrength||'').includes('down') ? 'var(--orange)' : 'var(--text3)';
+    // Safe delta calculations — guard semua null/undefined
+    const gDelta    = (oc.globalLSRDelta !== null && oc.globalLSRDelta !== undefined && !isNaN(oc.globalLSRDelta)) ? oc.globalLSRDelta : null;
+    const tDelta    = (oc.topLSRDelta    !== null && oc.topLSRDelta    !== undefined && !isNaN(oc.topLSRDelta))    ? oc.topLSRDelta    : null;
 
-    const deltaStr  = oc.globalLSRDelta !== null
-      ? (oc.globalLSRDelta >= 0 ? `+${oc.globalLSRDelta.toFixed(3)}` : oc.globalLSRDelta.toFixed(3)) : '—';
-    const deltaClr  = oc.globalLSRDelta > 0 ? 'var(--red)' : oc.globalLSRDelta < 0 ? 'var(--orange)' : 'var(--text2)';
-    const trendArrow= oc.lsTrend3 === 'up' ? '↑' : oc.lsTrend3 === 'down' ? '↓' : '→';
+    const deltaStr    = gDelta !== null ? (gDelta >= 0 ? `+${gDelta.toFixed(3)}` : gDelta.toFixed(3)) : '—';
+    const deltaClr    = gDelta !== null ? (gDelta > 0 ? 'var(--red)' : gDelta < 0 ? 'var(--orange)' : 'var(--text2)') : 'var(--text2)';
+    const trendArrow  = oc.lsTrend3 === 'up' ? '↑' : oc.lsTrend3 === 'down' ? '↓' : '→';
+
+    const topDeltaStr = tDelta !== null ? (tDelta >= 0 ? `+${tDelta.toFixed(3)}` : tDelta.toFixed(3)) : '—';
+    const topDeltaClr = tDelta !== null ? (tDelta > 0 ? 'var(--green)' : tDelta < 0 ? 'var(--red)' : 'var(--text2)') : 'var(--text2)';
+    const topArrow    = tDelta !== null ? (tDelta > 0.005 ? '↑' : tDelta < -0.005 ? '↓' : '→') : '→';
 
     const globalBox = oc.squeezeFuelHigh ? 'ls-squeeze' : oc.crowdFlipSustained ? 'ls-flip' : oc.crowdFlipEarly ? 'ls-flip' : oc.crowdShortDom ? 'ls-squeeze' : 'ls-neutral';
-    const topBox    = oc.smartMoneyShort ? 'ls-flip' : oc.squeezeDivergence ? 'ls-squeeze' : oc.topLong > 0.55 ? 'ls-bull' : 'ls-neutral';
-    const topDeltaStr = oc.topLSRDelta !== null ? (oc.topLSRDelta >= 0 ? `+${oc.topLSRDelta.toFixed(3)}` : oc.topLSRDelta.toFixed(3)) : null;
-    const topDeltaClr = oc.topLSRDelta > 0 ? 'var(--green)' : oc.topLSRDelta < 0 ? 'var(--red)' : 'var(--text2)';
-    const topArrow    = oc.topLSRDelta > 0.005 ? '↑' : oc.topLSRDelta < -0.005 ? '↓' : '→';
+    const topBox    = oc.smartMoneyShort ? 'ls-flip' : oc.squeezeDivergence ? 'ls-squeeze' : (oc.topLong !== null && oc.topLong > 0.55) ? 'ls-bull' : 'ls-neutral';
+
+    const topLSRStr = (oc.topLSR !== null && oc.topLSR !== undefined && !isNaN(oc.topLSR)) ? oc.topLSR.toFixed(2) : '—';
+    const gLSRStr   = (oc.globalLSR !== null && !isNaN(oc.globalLSR)) ? oc.globalLSR.toFixed(3) : '—';
 
     lsTrendHtml = `
     <div class="ls-trend-row">
       <div class="ls-box ${globalBox}" style="grid-column:span 2">
         <div class="ls-lbl">CROWD L/S TREND (5M)</div>
-        <div style="margin:3px 0 2px;font-size:9px;font-family:var(--mono);line-height:1.4">${miniChart}</div>
+        <div style="margin:3px 0 2px;font-size:9px;font-family:var(--mono);line-height:1.4">${miniChart || '—'}</div>
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="ls-val" style="color:${oc.crowdShortDom?'var(--orange)':'var(--green)'}">${oc.globalLSR.toFixed(3)}</div>
+          <div class="ls-val" style="color:${oc.crowdShortDom?'var(--orange)':'var(--green)'}">${gLSRStr}</div>
           <div style="text-align:right">
             <div style="font-size:9px;color:${deltaClr};font-family:var(--mono)">${trendArrow} ${deltaStr}</div>
             <div style="font-size:8px;color:${oc.crowdFlipSustained?'var(--red)':oc.crowdFlipEarly?'var(--orange)':oc.crowdShortDom?'var(--orange)':'var(--text3)'}">${
@@ -2089,8 +2086,8 @@ function makeCard(c, ccls) {
       </div>
       <div class="ls-box ${topBox}">
         <div class="ls-lbl">TOP TRADER</div>
-        <div class="ls-val" style="color:${oc.smartMoneyShort?'var(--red)':oc.squeezeDivergence?'var(--orange)':'var(--text2)'}">${oc.topLSR !== null ? oc.topLSR.toFixed(2) : '—'}</div>
-        <div class="ls-sub" style="color:${topDeltaClr}">${topArrow} ${topDeltaStr || '—'} ${oc.smartMoneyShort?'SM↓':oc.squeezeDivergence?'DIVG':oc.whaleExit?'EXIT':''}</div>
+        <div class="ls-val" style="color:${oc.smartMoneyShort?'var(--red)':oc.squeezeDivergence?'var(--orange)':'var(--text2)'}">${topLSRStr}</div>
+        <div class="ls-sub" style="color:${topDeltaClr}">${topArrow} ${topDeltaStr} ${oc.smartMoneyShort?'SM↓':oc.squeezeDivergence?'DIVG':oc.whaleExit?'EXIT':''}</div>
       </div>
     </div>`;
   }
