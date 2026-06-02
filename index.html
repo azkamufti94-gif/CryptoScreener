@@ -1332,7 +1332,7 @@ function calcConviction(item, signal) {
     if (oc.sellDom) {
       score+=3;
       reasons.push(`🔴 Taker SELL dominan (${((oc.takerSellR||0)*100).toFixed(0)}%) = distribusi real`);
-    } else if (oc.takerSellR > 0.50) {
+    } else if (oc.takerSellR != null && oc.takerSellR > 0.50) {
       score+=1;
       reasons.push(`Taker sell ${((oc.takerSellR||0)*100).toFixed(0)}% > buy`);
     }
@@ -1356,7 +1356,7 @@ function calcConviction(item, signal) {
     }
 
     // Top trader short dominant
-    if (oc.topShort > 0.55) {
+    if (oc.topShort != null && oc.topShort > 0.55) {
       score+=1;
       reasons.push(`Top trader ${((oc.topShort||0)*100).toFixed(0)}% short = smart money bearish`);
     }
@@ -1420,8 +1420,8 @@ function calcConviction(item, signal) {
     else if (item.lowerWick > 30){ score+=1; }
 
     // V8 boost LONG
-    if (oc.takerBuyR > 0.55)     { score+=2; reasons.push(`Taker buy ${((oc.takerBuyR||0)*100).toFixed(0)}% dominan = akumulasi`); }
-    if (oc.globalLong < 0.40)    { score+=1; reasons.push('Global long rendah = belum FOMO'); }
+    if (oc.takerBuyR != null && oc.takerBuyR > 0.55)  { score+=2; reasons.push(`Taker buy ${((oc.takerBuyR||0)*100).toFixed(0)}% dominan = akumulasi`); }
+    if (oc.globalLong != null && oc.globalLong < 0.40) { score+=1; reasons.push('Global long rendah = belum FOMO'); }
 
   } else if (signal === 'LONG_EARLY') {
     if (fr < -0.1)               { score+=2; reasons.push('FR negatif = short overcrowded'); }
@@ -1433,8 +1433,8 @@ function calcConviction(item, signal) {
     if (vol_m > 100)             { score+=1; reasons.push('Volume solid'); }
 
     // V8 boost
-    if (oc.takerBuyR > 0.55)     { score+=2; reasons.push(`Taker buy dominan (${((oc.takerBuyR||0)*100).toFixed(0)}%)`); }
-    if (oc.globalLong < 0.45 && oc.topLong > 0.55) {
+    if (oc.takerBuyR != null && oc.takerBuyR > 0.55)  { score+=2; reasons.push(`Taker buy dominan (${((oc.takerBuyR||0)*100).toFixed(0)}%)`); }
+    if (oc.globalLong != null && oc.topLong != null && oc.globalLong < 0.45 && oc.topLong > 0.55) {
       score+=2; reasons.push('Top trader long, retail belum ikut = akumulasi whale');
     }
     reasons.push('🔵 Early akumulasi — WRD/Top trader mulai naik');
@@ -1447,8 +1447,8 @@ function calcConviction(item, signal) {
     if (vol_m > 100)             { score+=1; reasons.push('Volume solid'); }
 
     // V8 boost
-    if (oc.takerBuyR > 0.60)     { score+=2; reasons.push(`Taker buy ${((oc.takerBuyR||0)*100).toFixed(0)}% = momentum kuat`); }
-    if (oc.topLong > 0.55)       { score+=1; reasons.push('Top trader masih long'); }
+    if (oc.takerBuyR != null && oc.takerBuyR > 0.60) { score+=2; reasons.push(`Taker buy ${((oc.takerBuyR||0)*100).toFixed(0)}% = momentum kuat`); }
+    if (oc.topLong   != null && oc.topLong   > 0.55) { score+=1; reasons.push('Top trader masih long'); }
     reasons.push('💜 Momentum long — buy vol & OI dominan');
 
   } else if (signal === 'LONG_SQUEEZE') {
@@ -1460,8 +1460,8 @@ function calcConviction(item, signal) {
     if (item.cmf > 0)            { score+=1; reasons.push('CMF tidak negatif'); }
 
     // V8 boost squeeze
-    if (oc.globalShort > 0.55)   { score+=3; reasons.push(`Global short ${((oc.globalShort||0)*100).toFixed(0)}% = short overcrowded masif`); }
-    if (oc.takerBuyR > 0.50)     { score+=1; reasons.push('Taker buy mulai masuk'); }
+    if (oc.globalShort != null && oc.globalShort > 0.55) { score+=3; reasons.push(`Global short ${((oc.globalShort||0)*100).toFixed(0)}% = short overcrowded masif`); }
+    if (oc.takerBuyR   != null && oc.takerBuyR   > 0.50) { score+=1; reasons.push('Taker buy mulai masuk'); }
     reasons.push('💠 Squeeze: short overcrowded, rawan squeeze naik');
   }
 
@@ -1895,8 +1895,13 @@ function fmtPrice(v) {
 }
 
 function fmtPct(v) {
-  if (v===null||v===undefined) return '—';
+  if (v === null || v === undefined || isNaN(v)) return '—';
   return (v*100).toFixed(0)+'%';
+}
+
+function safeFixed(v, d=2) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return Number(v).toFixed(d);
 }
 
 function makeCard(c, ccls) {
@@ -1956,7 +1961,7 @@ function makeCard(c, ccls) {
   else if (oc.crowdFlipEarly)tags.push({t:'⚡ FLIP 2C',c:'t-o'});
   if (oc.squeezeDivergence)  tags.push({t:'DIVG SQZ',c:'t-o'});
   if (oc.smartMoneyShort)    tags.push({t:'SM SHORT↓',c:'t-r'});
-  if (oc.takerBuyR > 0.60) tags.push({t:'BUY DOM',c:'t-g'});
+  if (oc.takerBuyR != null && oc.takerBuyR > 0.60) tags.push({t:'BUY DOM',c:'t-g'});
   // Thin liquidity tags
   const thin = c.thin || {};
   if (thin.thinScore === 3) tags.push({t:'🔥 THIN LIQ',c:'t-r'});
@@ -1969,31 +1974,37 @@ function makeCard(c, ccls) {
   if (hasOC) {
     const takerBuy  = oc.takerBuyR  !== null ? fmtPct(oc.takerBuyR)  : '—';
     const takerSell = oc.takerSellR !== null ? fmtPct(oc.takerSellR) : '—';
-    const takerBuyClr  = oc.takerBuyR > 0.55  ? 'var(--green)' : oc.takerSellR > 0.55 ? 'var(--red)' : 'var(--text2)';
-    const takerSellClr = oc.takerSellR > 0.55 ? 'var(--red)'   : 'var(--text2)';
-    const globalLSRClr = oc.globalLSR > 1.2 ? 'var(--orange)' : oc.globalLSR < 0.8 ? 'var(--cyan)' : 'var(--text2)';
-    const topLSRClr    = oc.topLSR > 1.2 ? 'var(--orange)' : oc.topLSR < 0.8 ? 'var(--cyan)' : 'var(--text2)';
+    const takerBuyClr  = (oc.takerBuyR  != null && oc.takerBuyR  > 0.55) ? 'var(--green)' : (oc.takerSellR != null && oc.takerSellR > 0.55) ? 'var(--red)' : 'var(--text2)';
+    const takerSellClr = (oc.takerSellR != null && oc.takerSellR > 0.55) ? 'var(--red)' : 'var(--text2)';
+    const globalLSRClr = oc.globalLSR == null ? 'var(--text2)' : oc.globalLSR > 1.2 ? 'var(--orange)' : oc.globalLSR < 0.8 ? 'var(--cyan)' : 'var(--text2)';
+    const topLSRClr    = oc.topLSR    == null ? 'var(--text2)' : oc.topLSR    > 1.2 ? 'var(--orange)' : oc.topLSR    < 0.8 ? 'var(--cyan)'   : 'var(--text2)';
 
-    const takerBox  = oc.sellDom ? 'oc-bear' : oc.takerBuyR > 0.55 ? 'oc-bull' : 'oc-neu';
-    const globalBox = oc.retailOT ? 'oc-bear' : oc.globalLong > 0.55 ? 'oc-bear' : 'oc-neu';
-    const topBox    = oc.whaleExit ? 'oc-bear' : oc.topLong > 0.55 ? 'oc-bull' : 'oc-neu';
+    const takerBox  = oc.sellDom ? 'oc-bear' : (oc.takerBuyR != null && oc.takerBuyR > 0.55) ? 'oc-bull' : 'oc-neu';
+    const globalBox = oc.retailOT ? 'oc-bear' : (oc.globalLong != null && oc.globalLong > 0.55) ? 'oc-bear' : 'oc-neu';
+    const topBox    = oc.whaleExit ? 'oc-bear' : (oc.topLong != null && oc.topLong > 0.55) ? 'oc-bull' : 'oc-neu';
+
+    const globalLSRDisplay = (oc.globalLSR != null && !isNaN(oc.globalLSR)) ? oc.globalLSR.toFixed(2) : '—';
+    const topLSRDisplay    = (oc.topLSR    != null && !isNaN(oc.topLSR))    ? oc.topLSR.toFixed(2)    : '—';
+    const takerSubLbl = oc.sellDom ? 'SELL DOM' : (oc.takerBuyR != null && oc.takerBuyR > 0.55) ? 'BUY DOM' : 'NETRAL';
+    const globalSubLbl = oc.globalLong != null ? `L:${fmtPct(oc.globalLong)} S:${fmtPct(oc.globalShort)}` : 'no data';
+    const topSubLbl    = oc.whaleExit ? '⬇ WHALE EXIT' : oc.topLong != null ? `L:${fmtPct(oc.topLong)}` : 'no data';
 
     ocHtml = `
     <div class="oc-row">
       <div class="oc-box ${takerBox}">
         <div class="oc-lbl">TAKER B/S</div>
         <div class="oc-val"><span style="color:${takerBuyClr}">${takerBuy}</span>/<span style="color:${takerSellClr}">${takerSell}</span></div>
-        <div class="oc-sub">${oc.sellDom?'SELL DOM':oc.takerBuyR>0.55?'BUY DOM':'NETRAL'}</div>
+        <div class="oc-sub">${takerSubLbl}</div>
       </div>
       <div class="oc-box ${globalBox}">
         <div class="oc-lbl">GLOBAL L/S</div>
-        <div class="oc-val" style="color:${globalLSRClr}">${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>
-        <div class="oc-sub">${oc.globalLong!==null?`L:${fmtPct(oc.globalLong)} S:${fmtPct(oc.globalShort)}`:'no data'}</div>
+        <div class="oc-val" style="color:${globalLSRClr}">${globalLSRDisplay}</div>
+        <div class="oc-sub">${globalSubLbl}</div>
       </div>
       <div class="oc-box ${topBox}">
         <div class="oc-lbl">TOP TRADER</div>
-        <div class="oc-val" style="color:${topLSRClr}">${oc.topLSR !== null ? oc.topLSR.toFixed(2) : '—'}</div>
-        <div class="oc-sub">${oc.whaleExit?'⬇ WHALE EXIT':oc.topLong!==null?`L:${fmtPct(oc.topLong)}`:'no data'}</div>
+        <div class="oc-val" style="color:${topLSRClr}">${topLSRDisplay}</div>
+        <div class="oc-sub">${topSubLbl}</div>
       </div>
     </div>`;
   }
@@ -2114,7 +2125,7 @@ function makeCard(c, ccls) {
     ${lsBannerHtml}
     <div class="c-stats">
       <div class="cs"><div class="cs-lbl">RSI</div><div class="cs-val" style="color:${rsiClr}">${c.rsi}</div></div>
-      <div class="cs"><div class="cs-lbl">CMF</div><div class="cs-val" style="color:${cmfClr}">${c.cmf.toFixed(2)}</div></div>
+      <div class="cs"><div class="cs-lbl">CMF</div><div class="cs-val" style="color:${cmfClr}">${(c.cmf != null && !isNaN(c.cmf)) ? c.cmf.toFixed(2) : '—'}</div></div>
       <div class="cs"><div class="cs-lbl">DistMA7</div><div class="cs-val" style="color:${distClr}">${c.distMA7>=0?'+':''}${c.distMA7}%</div></div>
       <div class="cs"><div class="cs-lbl">Spike</div><div class="cs-val" style="color:${spkClr}">${c.spikePct}%</div></div>
       <div class="cs"><div class="cs-lbl">VolSurge</div><div class="cs-val" style="color:${c.volSurge>2.5?'var(--orange)':'var(--text2)'}">${c.volSurge}x</div></div>
