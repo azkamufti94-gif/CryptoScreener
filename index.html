@@ -1395,6 +1395,26 @@ function calcConviction(item, signal) {
     if (oc.whaleExit)            { score+=2; reasons.push('Top trader exit = konfirmasi SHORT'); }
 
   } else if (signal === 'LONG_BOTTOM') {
+
+    // ── V9 L/S RATIO BLOCKER (LONG) ──
+    // Crowd LONG dominan saat harga sudah turun = retail averaging down = BUKAN bottom
+    // Bottom sejati terjadi saat crowd masih SHORT (takut masuk), bukan saat sudah banyak yang long
+    if (oc.globalLSR != null) {
+      if (oc.globalLSR > 2.00) {
+        score -= 5;
+        reasons.unshift(`🚫 HARD BLOCKER: Crowd LONG ekstrem (ratio ${oc.globalLSR.toFixed(2)} > 2.0) = retail averaging down masif, BUKAN bottom`);
+      } else if (oc.globalLSR > 1.50) {
+        score -= 3;
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = potensi distribusi, bukan bottom sejati`);
+      } else if (oc.globalLSR > 1.30) {
+        score -= 1;
+        reasons.push(`Crowd mulai long dominan (ratio ${oc.globalLSR.toFixed(2)}) — hati-hati`);
+      } else if (oc.globalLSR < 0.85) {
+        score += 2;
+        reasons.push(`✅ Crowd masih SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = bottom lebih valid`);
+      }
+    }
+
     if (fr < -0.1)               { score+=3; reasons.push('FR ekstrem negatif = short overcrowded'); }
     else if (fr < -0.05)         { score+=2; reasons.push('FR negatif kuat'); }
     else                         { score+=1; }
@@ -1424,6 +1444,21 @@ function calcConviction(item, signal) {
     if (oc.globalLong != null && oc.globalLong < 0.40) { score+=1; reasons.push('Global long rendah = belum FOMO'); }
 
   } else if (signal === 'LONG_EARLY') {
+
+    // ── V9 L/S RATIO BLOCKER (LONG_EARLY) ──
+    if (oc.globalLSR != null) {
+      if (oc.globalLSR > 2.00) {
+        score -= 4;
+        reasons.unshift(`🚫 Crowd LONG ekstrem (ratio ${oc.globalLSR.toFixed(2)}) = terlambat masuk, distribusi aktif`);
+      } else if (oc.globalLSR > 1.50) {
+        score -= 2;
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = entry kurang ideal`);
+      } else if (oc.globalLSR < 0.85) {
+        score += 1;
+        reasons.push(`✅ Crowd SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = early entry valid`);
+      }
+    }
+
     if (fr < -0.1)               { score+=2; reasons.push('FR negatif = short overcrowded'); }
     if (item.cmf > 0.05)         { score+=2; reasons.push('CMF positif = inflow awal'); }
     if (item.maAlign==='bull')   { score+=1; reasons.push('MA alignment bullish'); }
@@ -1440,6 +1475,23 @@ function calcConviction(item, signal) {
     reasons.push('🔵 Early akumulasi — WRD/Top trader mulai naik');
 
   } else if (signal === 'LONG_MOM') {
+
+    // ── V9 L/S RATIO CHECK (LONG_MOM) ──
+    // Untuk momentum, crowd long dominan masih bisa valid TAPI harus < 1.5
+    // > 1.5 = terlalu crowded, momentum bisa habis sewaktu-waktu
+    if (oc.globalLSR != null) {
+      if (oc.globalLSR > 2.00) {
+        score -= 3;
+        reasons.unshift(`⚠️ Crowd LONG sangat crowded (ratio ${oc.globalLSR.toFixed(2)}) = momentum berisiko habis, distribusi possible`);
+      } else if (oc.globalLSR > 1.50) {
+        score -= 1;
+        reasons.push(`Crowd long dominan (ratio ${oc.globalLSR.toFixed(2)}) — monitor distribusi`);
+      } else if (oc.globalLSR < 0.85) {
+        score += 2;
+        reasons.push(`✅ Crowd masih SHORT (ratio ${oc.globalLSR.toFixed(2)}) = momentum long masih punya fuel`);
+      }
+    }
+
     if (fr < -0.05)              { score+=2; reasons.push('FR negatif = short fuel'); }
     if (item.maAlign==='bull')   { score+=2; reasons.push('MA bullish aligned'); }
     if (item.cmf > 0.1)          { score+=2; reasons.push('CMF positif kuat'); }
@@ -1452,6 +1504,22 @@ function calcConviction(item, signal) {
     reasons.push('💜 Momentum long — buy vol & OI dominan');
 
   } else if (signal === 'LONG_SQUEEZE') {
+
+    // ── V9 L/S RATIO BOOST (LONG_SQUEEZE) ──
+    // Untuk squeeze, justru crowd SHORT dominan = lebih banyak short yang bisa di-squeeze
+    if (oc.globalLSR != null) {
+      if (oc.globalLSR < 0.75) {
+        score += 3;
+        reasons.push(`✅ Crowd SHORT ekstrem (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel masif`);
+      } else if (oc.globalLSR < 0.85) {
+        score += 2;
+        reasons.push(`✅ Crowd SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel tinggi`);
+      } else if (oc.globalLSR > 1.50) {
+        score -= 2;
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel berkurang`);
+      }
+    }
+
     if (fr < -0.20)              { score+=3; reasons.push('FR ekstrem negatif = squeeze fuel besar'); }
     else if (fr < -0.15)         { score+=2; reasons.push('FR sangat negatif'); }
     if (item.rsi < 40)           { score+=2; reasons.push('RSI oversold'); }
@@ -1463,7 +1531,6 @@ function calcConviction(item, signal) {
     if (oc.globalShort != null && oc.globalShort > 0.55) { score+=3; reasons.push(`Global short ${((oc.globalShort||0)*100).toFixed(0)}% = short overcrowded masif`); }
     if (oc.takerBuyR   != null && oc.takerBuyR   > 0.50) { score+=1; reasons.push('Taker buy mulai masuk'); }
     reasons.push('💠 Squeeze: short overcrowded, rawan squeeze naik');
-  }
 
   // Cap per signal — different max scores to keep conviction calibrated
   const maxScoreMap = {
