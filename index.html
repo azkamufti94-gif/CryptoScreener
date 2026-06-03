@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CryptoScreener Pro V9 — Azka</title>
+<!-- V9.3 BUILD 20260603-FINAL — DO NOT CACHE -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -789,6 +793,26 @@ input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.2); }
   <button class="scan-btn" id="scan-btn" onclick="startScan()">▶ SCAN</button>
 </div>
 
+<!-- DEBUG: window error catcher -->
+<script>
+window.onerror = function(msg, src, line, col, err) {
+  const logEl = document.getElementById('logbox');
+  if (logEl) {
+    logEl.innerHTML += '<div class="log-line log-err">🔴 WINDOW ERROR: '+msg+' (line '+line+')</div>';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  console.error('Window error:', msg, 'line:', line);
+  return false;
+};
+window.onunhandledrejection = function(e) {
+  const logEl = document.getElementById('logbox');
+  if (logEl) {
+    logEl.innerHTML += '<div class="log-line log-err">🔴 UNHANDLED PROMISE: '+(e.reason?.message||e.reason)+'</div>';
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+};
+</script>
+
 <!-- V8 MODE BAR -->
 <div class="v8-mode-bar">
   <span class="v8-label">V8 On-Chain:</span>
@@ -1083,6 +1107,17 @@ function parseOCData(ocRaw) {
     lsRatioHistory:     null,    // array ratio 5 candle terakhir
     lsTrend3:           null,    // 'up' | 'down' | 'mixed'
     lsTrendStrength:    null,    // 'strong' | 'moderate' | 'weak' | 'strong_down' | 'moderate_down'
+    // V6.1 OI Disambiguator flags
+    oiCurrent:          null,
+    oiPrev:             null,
+    oiDelta:            null,   // % change OI 1 candle
+    oiRising:           false,  // OI naik > 1%
+    oiFalling:          false,  // OI turun > 1%
+    oiCrash:            false,  // OI turun > 8% = liquidasi cascade
+    sellDomOiUp:        false,  // Sell dom + OI naik = squeeze fuel = LONG
+    sellDomOiDown:      false,  // Sell dom + OI turun = distribusi = SKIP LONG
+    buyDomOiUp:         false,  // Buy dom + OI naik = genuine momentum
+    buyDomOiDown:       false,  // Buy dom + OI turun = short covering = hati-hati
   };
 
   if (!ocRaw) return result;
@@ -1210,9 +1245,48 @@ function parseOCData(ocRaw) {
     if (result.crowdShortDom && result.topLong > 0.55) result.squeezeDivergence = true;
   }
 
-  // OI
+  // OI — dengan trend detection untuk disambiguator (V6.1)
   if (ocRaw.oi) {
-    result.oiVal = parseFloat(ocRaw.oi.openInterest || 0);
+    result.oiVal = parseFloat(ocRaw.oi.sumOpenInterest || ocRaw.oi.openInterest || 0);
+  }
+
+  // OI History — hitung trend untuk OI Disambiguator
+  if (ocRaw.oiHistory && ocRaw.oiHistory.length >= 2) {
+    const oiArr   = ocRaw.oiHistory;
+    const oiLast  = parseFloat(oiArr[oiArr.length-1].sumOpenInterest || 0);
+    const oiPrev  = parseFloat(oiArr[oiArr.length-2].sumOpenInterest || 0);
+    const oiPrev2 = oiArr.length >= 3 ? parseFloat(oiArr[oiArr.length-3].sumOpenInterest || 0) : oiPrev;
+
+    result.oiCurrent  = oiLast;
+    result.oiPrev     = oiPrev;
+    result.oiDelta    = oiPrev > 0 ? ((oiLast - oiPrev) / oiPrev) * 100 : 0;  // % change
+    result.oiDelta2   = oiPrev2 > 0 ? ((oiLast - oiPrev2) / oiPrev2) * 100 : 0; // % change 2 candle
+
+    // OI trend flags
+    result.oiRising   = result.oiDelta > 1.0;   // OI naik > 1% = posisi baru masuk
+    result.oiFalling  = result.oiDelta < -1.0;  // OI turun > 1% = posisi exit
+    result.oiCrash    = result.oiDelta < -8.0;  // OI turun > 8% = liquidasi cascade
+
+    // ── OI DISAMBIGUATOR (V6.1) ──
+    // Taker sell dominan bisa artinya dua hal — OI yang membedakan
+    if (result.sellDom) {
+      // Sell dominan + OI NAIK = short baru masuk = squeeze fuel = LONG valid
+      result.sellDomOiUp   = result.oiRising;
+      // Sell dominan + OI TURUN = long lama exit = distribusi = SKIP LONG
+      result.sellDomOiDown = result.oiFalling;
+    } else {
+      result.sellDomOiUp   = false;
+      result.sellDomOiDown = false;
+    }
+
+    // Buy dominan + OI TURUN = short covering (bukan genuine buy) = hati-hati
+    if (result.takerBuyR != null && result.takerBuyR > 0.55) {
+      result.buyDomOiDown = result.oiFalling;  // momentum palsu
+      result.buyDomOiUp   = result.oiRising;   // genuine momentum
+    } else {
+      result.buyDomOiDown = false;
+      result.buyDomOiUp   = false;
+    }
   }
 
   return result;
@@ -1325,6 +1399,18 @@ function calcConviction(item, signal) {
     if (oc.smartMoneyShort) {
       score += oc.whaleExitSustained ? 3 : 2;
       reasons.push(`🐋 Smart money short sustained = distribusi terkonfirmasi dari atas`);
+    }
+
+    // ── V6.1 OI DISAMBIGUATOR (SHORT_CONTRA) ──
+    if (oc.oiCrash) {
+      score += 2;
+      reasons.push(`📉 OI crash ${safeFixed(oc.oiDelta,1)}% = liquidasi massal = distribusi confirmed`);
+    } else if (oc.sellDomOiDown) {
+      score += 1;
+      reasons.push(`📉 Sell dom + OI turun = long exit terkonfirmasi`);
+    } else if (oc.sellDomOiUp) {
+      score -= 2;
+      reasons.push(`⚠️ Sell dom tapi OI NAIK = short baru masuk = squeeze risk`);
     }
 
     // ── V8 ON-CHAIN BOOST (SHORT CONTRA) ──
@@ -1443,6 +1529,24 @@ function calcConviction(item, signal) {
     if (oc.takerBuyR != null && oc.takerBuyR > 0.55)  { score+=2; reasons.push(`Taker buy ${((oc.takerBuyR||0)*100).toFixed(0)}% dominan = akumulasi`); }
     if (oc.globalLong != null && oc.globalLong < 0.40) { score+=1; reasons.push('Global long rendah = belum FOMO'); }
 
+    // ── V6.1 OI DISAMBIGUATOR (LONG_BOTTOM) ──
+    if (oc.sellDomOiUp) {
+      score += 3;
+      reasons.push(`✅ OI DISAMBIGUATOR: Sell dom + OI NAIK = short baru masuk = squeeze fuel genuine`);
+    } else if (oc.sellDomOiDown) {
+      score -= 3;
+      reasons.push(`❌ OI DISAMBIGUATOR: Sell dom + OI TURUN = long lama exit = distribusi, BUKAN bottom`);
+    } else if (oc.oiCrash) {
+      score -= 3;
+      reasons.push(`❌ OI crash ${safeFixed(oc.oiDelta,1)}% = liquidasi cascade = tunggu dust settle`);
+    } else if (oc.buyDomOiUp) {
+      score += 2;
+      reasons.push(`✅ Buy dom + OI naik = genuine momentum buying`);
+    } else if (oc.buyDomOiDown) {
+      score -= 1;
+      reasons.push(`⚠️ Buy dom tapi OI turun = short covering, bukan genuine buy`);
+    }
+
   } else if (signal === 'LONG_EARLY') {
 
     // ── V9 L/S RATIO BLOCKER (LONG_EARLY) ──
@@ -1530,6 +1634,19 @@ function calcConviction(item, signal) {
     // V8 boost squeeze
     if (oc.globalShort != null && oc.globalShort > 0.55) { score+=3; reasons.push(`Global short ${((oc.globalShort||0)*100).toFixed(0)}% = short overcrowded masif`); }
     if (oc.takerBuyR   != null && oc.takerBuyR   > 0.50) { score+=1; reasons.push('Taker buy mulai masuk'); }
+
+    // ── V6.1 OI DISAMBIGUATOR (LONG_SQUEEZE) ──
+    if (oc.sellDomOiUp) {
+      score += 4;
+      reasons.push(`✅ OI DISAMBIGUATOR: Sell dom + OI NAIK = short baru masuk = squeeze fuel KONFIRMASI`);
+    } else if (oc.sellDomOiDown) {
+      score -= 4;
+      reasons.push(`❌ OI DISAMBIGUATOR: Sell dom + OI TURUN = long exit = BUKAN squeeze setup`);
+    } else if (oc.oiCrash) {
+      score -= 2;
+      reasons.push(`⚠️ OI crash ${safeFixed(oc.oiDelta,1)}% = liquidasi massal, tunggu stabilisasi`);
+    }
+
     reasons.push('💠 Squeeze: short overcrowded, rawan squeeze naik');
   }
 
@@ -1634,11 +1751,14 @@ async function fetchOnChain(sym) {
   const baseA = 'https://fapi.binance.com/fapi/v1';
 
   try {
-    // OI snapshot (ringan, satu request)
+    // OI history — ambil 3 candle untuk deteksi trend naik/turun (OI Disambiguator V6.1)
     if (v8Modes.oi) {
       p.push(
-        fetchJSON(`${baseA}/openInterest?symbol=${sym}`)
-          .then(d => { result.oi = d; })
+        fetchJSON(`${baseF}/openInterestHist?symbol=${sym}&period=5m&limit=4`)
+          .then(d => {
+            result.oi = Array.isArray(d) && d.length > 0 ? d[d.length-1] : d;
+            result.oiHistory = Array.isArray(d) ? d : null;
+          })
           .catch(() => {})
       );
     }
@@ -2066,6 +2186,11 @@ function makeCard(c, ccls) {
     const globalSubLbl = oc.globalLong != null ? `L:${fmtPct(oc.globalLong)} S:${fmtPct(oc.globalShort)}` : 'no data';
     const topSubLbl    = oc.whaleExit ? '⬇ WHALE EXIT' : oc.topLong != null ? `L:${fmtPct(oc.topLong)}` : 'no data';
 
+    // OI delta display untuk disambiguator
+    const oiDeltaStr = oc.oiDelta != null ? (oc.oiDelta >= 0 ? `+${oc.oiDelta.toFixed(1)}%` : `${oc.oiDelta.toFixed(1)}%`) : null;
+    const oiDeltaClr = oc.oiCrash ? 'var(--red)' : oc.oiFalling ? 'var(--orange)' : oc.oiRising ? 'var(--green)' : 'var(--text3)';
+    const oiSubLbl   = oc.oiCrash ? `💥 CRASH ${oiDeltaStr}` : oc.sellDomOiUp ? `✅ SQZ FUEL` : oc.sellDomOiDown ? `❌ DISTRIB` : oc.buyDomOiDown ? `⚠️ CVR` : oiDeltaStr || 'no data';
+
     ocHtml = `
     <div class="oc-row">
       <div class="oc-box ${takerBox}">
@@ -2083,7 +2208,17 @@ function makeCard(c, ccls) {
         <div class="oc-val" style="color:${topLSRClr}">${topLSRDisplay}</div>
         <div class="oc-sub">${topSubLbl}</div>
       </div>
-    </div>`;
+    </div>
+    ${oc.oiDelta != null ? `
+    <div class="oc-row" style="margin-top:4px">
+      <div class="oc-box ${oc.oiCrash?'oc-bear':oc.sellDomOiUp?'oc-bull':oc.sellDomOiDown?'oc-bear':'oc-neu'}" style="grid-column:span 3">
+        <div class="oc-lbl">OI DISAMBIGUATOR</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="oc-val" style="color:${oiDeltaClr}">${oiDeltaStr || '—'}</div>
+          <div style="font-size:10px;font-weight:700;color:${oiDeltaClr}">${oiSubLbl}</div>
+        </div>
+      </div>
+    </div>` : ''}`;
   }
 
   // Thin liquidity info row
