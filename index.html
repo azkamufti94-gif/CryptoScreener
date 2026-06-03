@@ -1309,10 +1309,10 @@ function calcConviction(item, signal) {
     // KONFIRMASI SHORT: 3-candle sustained flip = timing optimal
     if (oc.crowdFlipSustained) {
       score += 4;
-      reasons.push(`✅ CROWD FLIP CONFIRMED (3 candle sustained): ratio ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} — SHORT WINDOW OPTIMAL`);
+      reasons.push(`✅ CROWD FLIP CONFIRMED (3 candle sustained): ratio ${oc.globalLSRPrev !== null ? safeFixed(oc.globalLSRPrev) : '—'} → ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'} — SHORT WINDOW OPTIMAL`);
     } else if (oc.crowdFlipEarly) {
       score += 2;
-      reasons.push(`⚡ Crowd flip early (2 candle): ratio menuju ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} — SHORT window terbuka, monitor`);
+      reasons.push(`⚡ Crowd flip early (2 candle): ratio menuju ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'} — SHORT window terbuka, monitor`);
     }
 
     // Divergensi squeeze: crowd short tapi top trader long = squeeze belum selesai
@@ -1402,16 +1402,16 @@ function calcConviction(item, signal) {
     if (oc.globalLSR != null) {
       if (oc.globalLSR > 2.00) {
         score -= 5;
-        reasons.unshift(`🚫 HARD BLOCKER: Crowd LONG ekstrem (ratio ${oc.globalLSR.toFixed(2)} > 2.0) = retail averaging down masif, BUKAN bottom`);
+        reasons.unshift(`🚫 HARD BLOCKER: Crowd LONG ekstrem (ratio ${safeFixed(oc.globalLSR)} > 2.0) = retail averaging down masif, BUKAN bottom`);
       } else if (oc.globalLSR > 1.50) {
         score -= 3;
-        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = potensi distribusi, bukan bottom sejati`);
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${safeFixed(oc.globalLSR)}) = potensi distribusi, bukan bottom sejati`);
       } else if (oc.globalLSR > 1.30) {
         score -= 1;
-        reasons.push(`Crowd mulai long dominan (ratio ${oc.globalLSR.toFixed(2)}) — hati-hati`);
+        reasons.push(`Crowd mulai long dominan (ratio ${safeFixed(oc.globalLSR)}) — hati-hati`);
       } else if (oc.globalLSR < 0.85) {
         score += 2;
-        reasons.push(`✅ Crowd masih SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = bottom lebih valid`);
+        reasons.push(`✅ Crowd masih SHORT dominan (ratio ${safeFixed(oc.globalLSR)}) = bottom lebih valid`);
       }
     }
 
@@ -1449,13 +1449,13 @@ function calcConviction(item, signal) {
     if (oc.globalLSR != null) {
       if (oc.globalLSR > 2.00) {
         score -= 4;
-        reasons.unshift(`🚫 Crowd LONG ekstrem (ratio ${oc.globalLSR.toFixed(2)}) = terlambat masuk, distribusi aktif`);
+        reasons.unshift(`🚫 Crowd LONG ekstrem (ratio ${safeFixed(oc.globalLSR)}) = terlambat masuk, distribusi aktif`);
       } else if (oc.globalLSR > 1.50) {
         score -= 2;
-        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = entry kurang ideal`);
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${safeFixed(oc.globalLSR)}) = entry kurang ideal`);
       } else if (oc.globalLSR < 0.85) {
         score += 1;
-        reasons.push(`✅ Crowd SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = early entry valid`);
+        reasons.push(`✅ Crowd SHORT dominan (ratio ${safeFixed(oc.globalLSR)}) = early entry valid`);
       }
     }
 
@@ -1482,13 +1482,13 @@ function calcConviction(item, signal) {
     if (oc.globalLSR != null) {
       if (oc.globalLSR > 2.00) {
         score -= 3;
-        reasons.unshift(`⚠️ Crowd LONG sangat crowded (ratio ${oc.globalLSR.toFixed(2)}) = momentum berisiko habis, distribusi possible`);
+        reasons.unshift(`⚠️ Crowd LONG sangat crowded (ratio ${safeFixed(oc.globalLSR)}) = momentum berisiko habis, distribusi possible`);
       } else if (oc.globalLSR > 1.50) {
         score -= 1;
-        reasons.push(`Crowd long dominan (ratio ${oc.globalLSR.toFixed(2)}) — monitor distribusi`);
+        reasons.push(`Crowd long dominan (ratio ${safeFixed(oc.globalLSR)}) — monitor distribusi`);
       } else if (oc.globalLSR < 0.85) {
         score += 2;
-        reasons.push(`✅ Crowd masih SHORT (ratio ${oc.globalLSR.toFixed(2)}) = momentum long masih punya fuel`);
+        reasons.push(`✅ Crowd masih SHORT (ratio ${safeFixed(oc.globalLSR)}) = momentum long masih punya fuel`);
       }
     }
 
@@ -1510,13 +1510,13 @@ function calcConviction(item, signal) {
     if (oc.globalLSR != null) {
       if (oc.globalLSR < 0.75) {
         score += 3;
-        reasons.push(`✅ Crowd SHORT ekstrem (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel masif`);
+        reasons.push(`✅ Crowd SHORT ekstrem (ratio ${safeFixed(oc.globalLSR)}) = squeeze fuel masif`);
       } else if (oc.globalLSR < 0.85) {
         score += 2;
-        reasons.push(`✅ Crowd SHORT dominan (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel tinggi`);
+        reasons.push(`✅ Crowd SHORT dominan (ratio ${safeFixed(oc.globalLSR)}) = squeeze fuel tinggi`);
       } else if (oc.globalLSR > 1.50) {
         score -= 2;
-        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)}) = squeeze fuel berkurang`);
+        reasons.unshift(`⚠️ Crowd sudah LONG dominan (ratio ${safeFixed(oc.globalLSR)}) = squeeze fuel berkurang`);
       }
     }
 
@@ -1531,6 +1531,7 @@ function calcConviction(item, signal) {
     if (oc.globalShort != null && oc.globalShort > 0.55) { score+=3; reasons.push(`Global short ${((oc.globalShort||0)*100).toFixed(0)}% = short overcrowded masif`); }
     if (oc.takerBuyR   != null && oc.takerBuyR   > 0.50) { score+=1; reasons.push('Taker buy mulai masuk'); }
     reasons.push('💠 Squeeze: short overcrowded, rawan squeeze naik');
+  }
 
   // Cap per signal — different max scores to keep conviction calibrated
   const maxScoreMap = {
@@ -1858,7 +1859,7 @@ async function startScan() {
     // ── STEP 4: Render ──
     pt.textContent = 'Step 4/4: Menyusun hasil...';
     allData = results;
-    render();
+    try { render(); } catch(re) { log('RENDER ERROR: '+re.message, 'err'); console.error(re); }
 
     document.getElementById('update-time').textContent = 'Update: '+new Date().toLocaleTimeString('id-ID');
     pulse.className = 'pulse on';
@@ -1943,7 +1944,16 @@ function renderAll(B, preset) {
       <div class="sec-body">
         ${list.length===0
           ? `<div class="empty">Tidak ada coin — coba perlonggar filter</div>`
-          : `<div class="cards">${list.map(c=>makeCard(c,sec.ccls)).join('')}</div>`
+          : `<div class="cards">${list.map(c => {
+              try { return makeCard(c, sec.ccls); }
+              catch(e) {
+                console.error('makeCard error for', c.sym, e);
+                return `<div class="card ${sec.ccls}" style="opacity:0.5;padding:12px">
+                  <div style="font-weight:700;color:var(--text2)">${c.sym?.replace('USDT','') || '?'}</div>
+                  <div style="font-size:10px;color:var(--red);margin-top:4px">⚠️ Render error: ${e.message}</div>
+                </div>`;
+              }
+            }).join('')}</div>`
         }
       </div>`;
     cont.appendChild(div);
@@ -2050,8 +2060,8 @@ function makeCard(c, ccls) {
     const globalBox = oc.retailOT ? 'oc-bear' : (oc.globalLong != null && oc.globalLong > 0.55) ? 'oc-bear' : 'oc-neu';
     const topBox    = oc.whaleExit ? 'oc-bear' : (oc.topLong != null && oc.topLong > 0.55) ? 'oc-bull' : 'oc-neu';
 
-    const globalLSRDisplay = (oc.globalLSR != null && !isNaN(oc.globalLSR)) ? oc.globalLSR.toFixed(2) : '—';
-    const topLSRDisplay    = (oc.topLSR    != null && !isNaN(oc.topLSR))    ? oc.topLSR.toFixed(2)    : '—';
+    const globalLSRDisplay = (oc.globalLSR != null && !isNaN(oc.globalLSR)) ? safeFixed(oc.globalLSR) : '—';
+    const topLSRDisplay    = (oc.topLSR    != null && !isNaN(oc.topLSR))    ? safeFixed(oc.topLSR)    : '—';
     const takerSubLbl = oc.sellDom ? 'SELL DOM' : (oc.takerBuyR != null && oc.takerBuyR > 0.55) ? 'BUY DOM' : 'NETRAL';
     const globalSubLbl = oc.globalLong != null ? `L:${fmtPct(oc.globalLong)} S:${fmtPct(oc.globalShort)}` : 'no data';
     const topSubLbl    = oc.whaleExit ? '⬇ WHALE EXIT' : oc.topLong != null ? `L:${fmtPct(oc.topLong)}` : 'no data';
@@ -2105,24 +2115,24 @@ function makeCard(c, ccls) {
 
   if (isShortSignal) {
     if (oc.squeezeFuelHigh) {
-      lsBannerHtml = `<div class="squeeze-warn">🚨 SQUEEZE FUEL EKSTREM — Crowd short ratio ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} (< 0.75). Tunggu crowd flip terkonfirmasi sebelum entry.</div>`;
+      lsBannerHtml = `<div class="squeeze-warn">🚨 SQUEEZE FUEL EKSTREM — Crowd short ratio ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'} (< 0.75). Tunggu crowd flip terkonfirmasi sebelum entry.</div>`;
     } else if (oc.crowdShortDom && oc.crowdFlipToShort) {
-      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd makin short (${oc.lsTrend3 === 'down' ? '3 candle ↓↓↓' : '2 candle ↓↓'}) — squeeze risk aktif. Ratio: ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd makin short (${oc.lsTrend3 === 'down' ? '3 candle ↓↓↓' : '2 candle ↓↓'}) — squeeze risk aktif. Ratio: ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'}</div>`;
     } else if (oc.crowdFlipSustained) {
-      lsBannerHtml = `<div class="crowd-flip">✅ CROWD FLIP CONFIRMED — 3 candle sustained naik → SHORT WINDOW OPTIMAL. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+      lsBannerHtml = `<div class="crowd-flip">✅ CROWD FLIP CONFIRMED — 3 candle sustained naik → SHORT WINDOW OPTIMAL. Ratio: ${oc.globalLSRPrev !== null ? safeFixed(oc.globalLSRPrev) : '—'} → ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'}</div>`;
     } else if (oc.crowdFlipEarly) {
-      lsBannerHtml = `<div class="crowd-flip" style="opacity:0.8;border-color:rgba(239,83,80,0.3)">⚡ CROWD FLIP EARLY — 2 candle naik, monitor. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+      lsBannerHtml = `<div class="crowd-flip" style="opacity:0.8;border-color:rgba(239,83,80,0.3)">⚡ CROWD FLIP EARLY — 2 candle naik, monitor. Ratio: ${oc.globalLSRPrev !== null ? safeFixed(oc.globalLSRPrev) : '—'} → ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'}</div>`;
     }
   } else if (isLongSignal && oc.globalLSR !== null) {
     // Untuk LONG: crowd SHORT dominan = bagus (squeeze fuel), crowd LONG dominan = hati-hati distribusi
     if (oc.squeezeFuelHigh) {
       // Crowd short ekstrem = LONG setup sangat kuat
-      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.10);border-color:rgba(38,166,154,0.40);color:var(--green)">✅ SQUEEZE FUEL KUAT — Crowd short ekstrem (ratio ${oc.globalLSR.toFixed(2)}). LONG setup sangat favorable.</div>`;
+      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.10);border-color:rgba(38,166,154,0.40);color:var(--green)">✅ SQUEEZE FUEL KUAT — Crowd short ekstrem (ratio ${safeFixed(oc.globalLSR)}). LONG setup sangat favorable.</div>`;
     } else if (oc.crowdShortDom) {
-      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.07);border-color:rgba(38,166,154,0.30);color:var(--green)">🟢 Crowd short dominan (ratio ${oc.globalLSR.toFixed(2)}) — squeeze pressure mendukung LONG.</div>`;
+      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.07);border-color:rgba(38,166,154,0.30);color:var(--green)">🟢 Crowd short dominan (ratio ${safeFixed(oc.globalLSR)}) — squeeze pressure mendukung LONG.</div>`;
     } else if (oc.globalLSR !== null && oc.globalLSR > 1.5) {
       // Crowd sudah long dominan = hati-hati, ini bisa distribusi
-      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)} > 1.5) — potensi distribusi, konfirmasi ulang sebelum entry.</div>`;
+      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd sudah LONG dominan (ratio ${safeFixed(oc.globalLSR)} > 1.5) — potensi distribusi, konfirmasi ulang sebelum entry.</div>`;
     }
   }
 
@@ -2155,8 +2165,8 @@ function makeCard(c, ccls) {
     const globalBox = oc.squeezeFuelHigh ? 'ls-squeeze' : oc.crowdFlipSustained ? 'ls-flip' : oc.crowdFlipEarly ? 'ls-flip' : oc.crowdShortDom ? 'ls-squeeze' : 'ls-neutral';
     const topBox    = oc.smartMoneyShort ? 'ls-flip' : oc.squeezeDivergence ? 'ls-squeeze' : (oc.topLong !== null && oc.topLong > 0.55) ? 'ls-bull' : 'ls-neutral';
 
-    const topLSRStr = (oc.topLSR !== null && oc.topLSR !== undefined && !isNaN(oc.topLSR)) ? oc.topLSR.toFixed(2) : '—';
-    const gLSRStr   = (oc.globalLSR !== null && !isNaN(oc.globalLSR)) ? oc.globalLSR.toFixed(3) : '—';
+    const topLSRStr = (oc.topLSR !== null && oc.topLSR !== undefined && !isNaN(oc.topLSR)) ? safeFixed(oc.topLSR) : '—';
+    const gLSRStr   = (oc.globalLSR !== null && !isNaN(oc.globalLSR)) ? safeFixed(oc.globalLSR,3) : '—';
 
     lsTrendHtml = `
     <div class="ls-trend-row">
