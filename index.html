@@ -1755,7 +1755,7 @@ async function startScan() {
       // Prioritaskan SHORT CONTRA dan SHORT untuk OC fetch
       // Karena OC paling berguna untuk konfirmasi SHORT setup
       const ocTargets = preClassified
-        .filter(c => ['SHORT_CONTRA','SHORT','LONG_BOTTOM','LONG_SQUEEZE'].includes(c.signal))
+        .filter(c => ['SHORT_CONTRA','SHORT','LONG_BOTTOM','LONG_EARLY','LONG_MOM','LONG_SQUEEZE'].includes(c.signal))
         .slice(0, 40); // max 40 coin fetch OC
 
       pt.textContent = `Step 3/4: Fetch on-chain data ${ocTargets.length} coin prioritas...`;
@@ -1911,7 +1911,7 @@ function makeCard(c, ccls) {
   const vol_m = c.vol/1e6;
   const isLong = ['LONG_BOTTOM','LONG_EARLY','LONG_MOM','LONG_SQUEEZE'].includes(c.signal);
   const oc     = c.oc || {};
-  const hasOC  = !!(oc.takerBuyR || oc.globalLSR || oc.topLSR || oc.oiVal);
+  const hasOC  = !!(oc.takerBuyR != null || oc.globalLSR != null || oc.topLSR != null || oc.oiVal != null);
 
   const chgCls  = pc>=0 ? 'c-chg-up' : 'c-chg-dn';
   const frCls   = fr>0.05?'c-fr-pos':fr<-0.05?'c-fr-neg':'c-fr-neu';
@@ -2034,6 +2034,8 @@ function makeCard(c, ccls) {
   // ── V9: SQUEEZE WARNING / CROWD FLIP BANNER ──
   let lsBannerHtml = '';
   const isShortSignal = c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT';
+  const isLongSignal  = ['LONG_BOTTOM','LONG_EARLY','LONG_MOM','LONG_SQUEEZE'].includes(c.signal);
+
   if (isShortSignal) {
     if (oc.squeezeFuelHigh) {
       lsBannerHtml = `<div class="squeeze-warn">🚨 SQUEEZE FUEL EKSTREM — Crowd short ratio ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'} (< 0.75). Tunggu crowd flip terkonfirmasi sebelum entry.</div>`;
@@ -2043,6 +2045,17 @@ function makeCard(c, ccls) {
       lsBannerHtml = `<div class="crowd-flip">✅ CROWD FLIP CONFIRMED — 3 candle sustained naik → SHORT WINDOW OPTIMAL. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
     } else if (oc.crowdFlipEarly) {
       lsBannerHtml = `<div class="crowd-flip" style="opacity:0.8;border-color:rgba(239,83,80,0.3)">⚡ CROWD FLIP EARLY — 2 candle naik, monitor. Ratio: ${oc.globalLSRPrev !== null ? oc.globalLSRPrev.toFixed(2) : '—'} → ${oc.globalLSR !== null ? oc.globalLSR.toFixed(2) : '—'}</div>`;
+    }
+  } else if (isLongSignal && oc.globalLSR !== null) {
+    // Untuk LONG: crowd SHORT dominan = bagus (squeeze fuel), crowd LONG dominan = hati-hati distribusi
+    if (oc.squeezeFuelHigh) {
+      // Crowd short ekstrem = LONG setup sangat kuat
+      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.10);border-color:rgba(38,166,154,0.40);color:var(--green)">✅ SQUEEZE FUEL KUAT — Crowd short ekstrem (ratio ${oc.globalLSR.toFixed(2)}). LONG setup sangat favorable.</div>`;
+    } else if (oc.crowdShortDom) {
+      lsBannerHtml = `<div class="crowd-flip" style="background:rgba(38,166,154,0.07);border-color:rgba(38,166,154,0.30);color:var(--green)">🟢 Crowd short dominan (ratio ${oc.globalLSR.toFixed(2)}) — squeeze pressure mendukung LONG.</div>`;
+    } else if (oc.globalLSR !== null && oc.globalLSR > 1.5) {
+      // Crowd sudah long dominan = hati-hati, ini bisa distribusi
+      lsBannerHtml = `<div class="squeeze-warn">⚠️ Crowd sudah LONG dominan (ratio ${oc.globalLSR.toFixed(2)} > 1.5) — potensi distribusi, konfirmasi ulang sebelum entry.</div>`;
     }
   }
 
