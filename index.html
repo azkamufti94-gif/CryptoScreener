@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CryptoScreener Pro V9 — Azka</title>
-<!-- V9.3 BUILD 20260603-FINAL — DO NOT CACHE -->
+<!-- V9.5 BUILD 20260603-LSRATIO — DO NOT CACHE -->
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -843,6 +843,7 @@ window.onunhandledrejection = function(e) {
   <button class="pbtn p-contra"   onclick="applyPreset(this,'contra')">⚡ Contra Mode</button>
   <button class="pbtn p-sqz"      onclick="applyPreset(this,'squeeze')">💠 Squeeze Play</button>
   <button class="pbtn p-night"    onclick="applyPreset(this,'night')">🌙 Night Scan</button>
+  <button class="pbtn" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border-color:#7c3aed" onclick="openBacktest()">🔬 Backtest</button>
 </div>
 
 <!-- ALERT BAR -->
@@ -1004,6 +1005,55 @@ function calcDumpPct(closes, price) {
   const high = Math.max(...closes.slice(-20));
   if (high===0) return 0;
   return parseFloat(((high-price)/high*100).toFixed(1));
+}
+
+// ══════════════════════════════════════════
+// V9.4 — PUMP FRESHNESS DETECTION
+// Tujuan: deteksi apakah pump terjadi di candle terbaru (fresh)
+// atau sudah lama (stale = sideways = SHORT CONTRA tidak relevan)
+//
+// Logic:
+// - Cek 6 candle terakhir (1H = 6 jam, 4H = 24 jam)
+// - Cari candle dengan body terbesar (pump candle)
+// - Hitung posisinya: candle ke-0 (terbaru) = paling fresh
+// - Hitung pumpMag: besarnya spike dalam % dari open candle itu
+// - freshScore: 0–3 (3 = sangat fresh, 0 = stale)
+// ══════════════════════════════════════════
+function calcPumpFreshness(klines) {
+  if (!klines || klines.length < 6) return { freshScore: 0, pumpAge: 99, pumpMag: 0, isFresh: false };
+
+  const recent = klines.slice(-6); // 6 candle terakhir
+  let maxBody = 0, pumpIdx = -1;
+
+  for (let i = 0; i < recent.length; i++) {
+    const open  = +recent[i][1];
+    const close = +recent[i][4];
+    const body  = ((close - open) / open) * 100; // % body, positif = bullish
+    if (body > maxBody) {
+      maxBody = body;
+      pumpIdx = i;
+    }
+  }
+
+  if (pumpIdx === -1 || maxBody < 3) {
+    // Tidak ada candle pump signifikan
+    return { freshScore: 0, pumpAge: 99, pumpMag: 0, isFresh: false };
+  }
+
+  // pumpAge: 0 = candle terbaru, 5 = candle paling lama di window
+  const pumpAge = (recent.length - 1) - pumpIdx;
+  const pumpMag = parseFloat(maxBody.toFixed(1));
+
+  // freshScore berdasarkan usia pump
+  let freshScore = 0;
+  if      (pumpAge <= 1) freshScore = 3;  // 0–1 candle lalu = sangat fresh
+  else if (pumpAge <= 2) freshScore = 2;  // 2 candle lalu = fresh
+  else if (pumpAge <= 3) freshScore = 1;  // 3 candle lalu = mulai stale
+  // pumpAge >= 4 = stale, freshScore = 0
+
+  const isFresh = freshScore >= 2;
+
+  return { freshScore, pumpAge, pumpMag, isFresh };
 }
 function calcDistMA7(ma7, price) {
   if (!ma7||ma7===0) return 0;
@@ -1359,6 +1409,22 @@ function calcConviction(item, signal) {
     if (item.spikePct > 50)      { score+=2; reasons.push(`Spike +${item.spikePct}% dari low`); }
     else if (item.spikePct > 30) { score+=1; reasons.push(`Spike +${item.spikePct}% dari low`); }
 
+    // ── V9.4 PUMP FRESHNESS ──
+    const pf = item.pumpFresh || {};
+    if (pf.freshScore === 3) {
+      score += 3;
+      reasons.push(`🔥 PUMP FRESH (${pf.pumpAge === 0 ? 'candle ini' : pf.pumpAge + ' candle lalu'}) — mag +${pf.pumpMag}% = SHORT CONTRA window OPTIMAL`);
+    } else if (pf.freshScore === 2) {
+      score += 2;
+      reasons.push(`⚡ Pump fresh (${pf.pumpAge} candle lalu) — mag +${pf.pumpMag}% = window masih terbuka`);
+    } else if (pf.freshScore === 1) {
+      score += 1;
+      reasons.push(`⏳ Pump mulai stale (${pf.pumpAge} candle lalu) — monitor, belum optimal`);
+    } else if (pf.pumpAge >= 4 && pf.pumpMag > 0) {
+      score -= 1;
+      reasons.push(`⚠️ Pump sudah stale (${pf.pumpAge} candle lalu) — sideways terlalu lama, SHORT CONTRA kurang relevan`);
+    }
+
     if (item.distMA7 > 30)       { score+=2; reasons.push(`Harga ${item.distMA7}% di atas MA7`); }
     else if (item.distMA7 > 15)  { score+=1; reasons.push(`Harga ${item.distMA7}% di atas MA7`); }
 
@@ -1371,34 +1437,96 @@ function calcConviction(item, signal) {
     // ── V9 ON-CHAIN: L/S RATIO TREND (SINYAL PRIMER) ──
     // 3-candle sustained flip = konfirmasi kuat, early flip = early warning
 
-    // SQUEEZE RISK BLOCKER
-    if (oc.squeezeFuelHigh) {
-      score -= 3;
-      reasons.unshift('🚨 SQUEEZE FUEL TINGGI: ratio <0.75, crowd short ekstrem — SHORT BERISIKO TINGGI');
-    } else if (oc.crowdShortDom && oc.crowdFlipToShort) {
-      score -= 2;
-      reasons.unshift('⚠️ Crowd makin short = squeeze risk naik — tunggu crowd flip');
+    // ══════════════════════════════════════════
+    // V9.5 — L/S RATIO + TAKER ANALYSIS (SHORT CONTRA)
+    // Logic: apakah narasi masih bullish (SKIP) atau sudah flip bearish (ENTRY)
+    //
+    // 4 kondisi utama:
+    // 1. Crowd masih LONG dominan + taker buy dominan = narasi MASIH BULLISH → SKIP/penalti
+    // 2. Crowd mulai flip ke SHORT + taker sell mulai dominan = WINDOW TERBUKA → boost
+    // 3. Crowd sudah SHORT dominan tapi belum flip (crowdShortDom lama) = SQUEEZE RISK → penalti
+    // 4. Top trader sudah short / exit = konfirmasi kuat → boost
+    // ══════════════════════════════════════════
+
+    if (oc.globalLSR != null) {
+
+      // ── KONDISI 1: Narasi masih sangat bullish — crowd long dominan + ratio tinggi ──
+      // Ini paling berbahaya untuk SHORT CONTRA: retail masih FOMO, belum ada tanda balik
+      if (oc.globalLSR > 1.80) {
+        score -= 4;
+        reasons.unshift(`🚫 NARASI MASIH SANGAT BULLISH: Crowd L/S ratio ${safeFixed(oc.globalLSR)} — retail masih heavily long, SHORT CONTRA terlalu dini`);
+      } else if (oc.globalLSR > 1.40) {
+        score -= 3;
+        reasons.unshift(`⚠️ Crowd masih LONG dominan (ratio ${safeFixed(oc.globalLSR)}) — belum ada tanda flip, risiko SHORT tinggi`);
+      } else if (oc.globalLSR > 1.10) {
+        score -= 1;
+        reasons.push(`Crowd masih sedikit long dominan (ratio ${safeFixed(oc.globalLSR)}) — monitor flip`);
+
+      // ── KONDISI 3: Crowd sudah short dominan TAPI belum flip = squeeze risk ──
+      } else if (oc.squeezeFuelHigh) {
+        score -= 3;
+        reasons.unshift(`🚨 SQUEEZE FUEL TINGGI: Crowd L/S ${safeFixed(oc.globalLSR)} < 0.75 — crowd sudah short ekstrem, SHORT CONTRA berisiko tinggi`);
+      } else if (oc.crowdShortDom && oc.crowdFlipToShort) {
+        score -= 2;
+        reasons.unshift(`⚠️ Crowd makin short (ratio ${safeFixed(oc.globalLSR)}) — squeeze risk naik, tunggu stabilisasi`);
+
+      // ── KONDISI 2: Zona netral ke bearish — crowd sedang flip ──
+      // Ini sweet spot SHORT CONTRA: crowd baru sadar harga tidak naik lagi
+      } else if (oc.crowdFlipSustained) {
+        score += 4;
+        reasons.push(`✅ CROWD FLIP CONFIRMED 3C: ratio ${oc.globalLSRPrev !== null ? safeFixed(oc.globalLSRPrev) : '—'} → ${safeFixed(oc.globalLSR)} — SHORT WINDOW OPTIMAL, crowd capitulasi`);
+      } else if (oc.crowdFlipEarly) {
+        score += 2;
+        reasons.push(`⚡ Crowd flip awal 2C: ratio turun ke ${safeFixed(oc.globalLSR)} — SHORT window mulai terbuka, monitor 1 candle lagi`);
+      } else if (oc.globalLSR >= 0.85 && oc.globalLSR <= 1.10 && oc.globalLSRDelta != null && oc.globalLSRDelta < 0) {
+        // Zona netral tapi ratio sedang turun = early signal
+        score += 1;
+        reasons.push(`📉 Crowd ratio turun ke zona netral (${safeFixed(oc.globalLSR)}) — distribusi mulai`);
+      }
     }
 
-    // KONFIRMASI SHORT: 3-candle sustained flip = timing optimal
-    if (oc.crowdFlipSustained) {
-      score += 4;
-      reasons.push(`✅ CROWD FLIP CONFIRMED (3 candle sustained): ratio ${oc.globalLSRPrev !== null ? safeFixed(oc.globalLSRPrev) : '—'} → ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'} — SHORT WINDOW OPTIMAL`);
-    } else if (oc.crowdFlipEarly) {
-      score += 2;
-      reasons.push(`⚡ Crowd flip early (2 candle): ratio menuju ${oc.globalLSR !== null ? safeFixed(oc.globalLSR) : '—'} — SHORT window terbuka, monitor`);
+    // ── TAKER BUY/SELL SEBAGAI KONFIRMASI NARASI ──
+    // Taker = order yang langsung hit buku = representasi sentimen real-time paling akurat
+    if (oc.takerBuyR != null && oc.takerSellR != null) {
+      if (oc.takerBuyR > 0.65) {
+        // Taker masih didominasi BUY = retail masih agresif beli = narasi masih bullish
+        score -= 2;
+        reasons.push(`🟢 Taker BUY masih dominan (${((oc.takerBuyR)*100).toFixed(0)}%) — retail masih agresif beli, SHORT CONTRA prematur`);
+      } else if (oc.takerBuyR > 0.55) {
+        score -= 1;
+        reasons.push(`Taker buy ${((oc.takerBuyR)*100).toFixed(0)}% > sell — sentimen masih sedikit bullish`);
+      } else if (oc.sellDom) {
+        // Taker sell dominan = tekanan jual real = konfirmasi SHORT
+        score += 3;
+        reasons.push(`🔴 Taker SELL dominan (${((oc.takerSellR)*100).toFixed(0)}%) = distribusi real, sentimen flip ke bearish`);
+      } else if (oc.takerSellR > 0.50) {
+        score += 1;
+        reasons.push(`Taker sell ${((oc.takerSellR)*100).toFixed(0)}% mulai dominan — tekanan jual meningkat`);
+      }
     }
 
-    // Divergensi squeeze: crowd short tapi top trader long = squeeze belum selesai
-    if (oc.squeezeDivergence) {
-      score -= 2;
-      reasons.push('🔄 Squeeze divergence: top trader long, crowd short = squeeze belum selesai');
-    }
-
-    // Smart money (top trader) sustained short = konfirmasi kuat
-    if (oc.smartMoneyShort) {
-      score += oc.whaleExitSustained ? 3 : 2;
-      reasons.push(`🐋 Smart money short sustained = distribusi terkonfirmasi dari atas`);
+    // ── KONDISI 4: TOP TRADER (SMART MONEY) ANALYSIS ──
+    if (oc.topLSR != null) {
+      // Squeeze divergence: crowd short tapi top trader masih long = squeeze belum selesai
+      if (oc.squeezeDivergence) {
+        score -= 2;
+        reasons.push(`🔄 Divergence: top trader masih LONG (${((oc.topLong||0)*100).toFixed(0)}%) tapi crowd short — squeeze belum selesai, TUNGGU`);
+      }
+      // Smart money sudah short sustained = distribusi terkonfirmasi dari atas
+      if (oc.smartMoneyShort) {
+        score += oc.whaleExitSustained ? 3 : 2;
+        reasons.push(`🐋 Smart money SHORT sustained (${((oc.topShort||0)*100).toFixed(0)}% short, ${oc.whaleExitSustained ? '3 candle' : '2 candle'}) = distribusi terkonfirmasi`);
+      } else if (oc.whaleExit) {
+        score += 2;
+        reasons.push(`🐋 Top trader L/S ratio turun (${safeFixed(oc.topLSRPrev)} → ${safeFixed(oc.topLSR)}) = whale mulai exit long`);
+      } else if (oc.topLong != null && oc.topLong > 0.65) {
+        // Top trader masih heavily long = belum distribusi = terlalu dini short
+        score -= 2;
+        reasons.push(`⚠️ Top trader masih ${((oc.topLong)*100).toFixed(0)}% LONG — smart money belum exit, SHORT CONTRA terlalu dini`);
+      } else if (oc.topShort != null && oc.topShort > 0.55) {
+        score += 1;
+        reasons.push(`Top trader ${((oc.topShort)*100).toFixed(0)}% short = smart money bearish`);
+      }
     }
 
     // ── V6.1 OI DISAMBIGUATOR (SHORT_CONTRA) ──
@@ -1429,22 +1557,10 @@ function calcConviction(item, signal) {
       reasons.push('🕵️ Hidden distribution: buy vol tinggi tapi harga stagnant = whale selling');
     }
 
-    // Whale exit confirmed
-    if (oc.whaleExit) {
-      score+=2;
-      reasons.push('🐋 Top trader L/S ratio turun = whale mulai exit');
-    }
-
-    // Retail overtrap
+    // Retail overtrap: crowd long + top trader short = konfirmasi distribusi
     if (oc.retailOT) {
       score+=2;
-      reasons.push('🎯 Retail overtrap: global long tinggi, top trader flip short');
-    }
-
-    // Top trader short dominant
-    if (oc.topShort != null && oc.topShort > 0.55) {
-      score+=1;
-      reasons.push(`Top trader ${((oc.topShort||0)*100).toFixed(0)}% short = smart money bearish`);
+      reasons.push('🎯 Retail overtrap: global long tinggi tapi top trader sudah short = distribusi masif');
     }
 
     // ── THIN LIQUIDITY BOOST (analisis kamu) ──
@@ -1652,7 +1768,7 @@ function calcConviction(item, signal) {
 
   // Cap per signal — different max scores to keep conviction calibrated
   const maxScoreMap = {
-    SHORT_CONTRA: 28,  // most signals possible with thin liq + OC
+    SHORT_CONTRA: 38,  // V9.5: L/S ratio + taker + smart money + thin liq + pump freshness
     SHORT:        14,
     LONG_BOTTOM:  22,
     LONG_EARLY:   12,
@@ -1701,7 +1817,11 @@ function getSignal(item) {
   const thin    = item.thin || {};
   const scCondI = pc_v > 10 && thin.thinScore >= 2;                  // pump + confirmed thin liquidity
 
-  const isShortContra = scCondA || scCondB || scCondC || scCondD || scCondE || scCondF || scCondG || scCondH || scCondI;
+  // V9.4: pump freshness — pump terjadi di 1-2 candle terakhir = SHORT CONTRA paling valid
+  const pf      = item.pumpFresh || {};
+  const scCondJ = pf.isFresh && pf.pumpMag >= 5 && pc_v > 8;        // candle pump fresh + mag >=5% body + price naik
+
+  const isShortContra = scCondA || scCondB || scCondC || scCondD || scCondE || scCondF || scCondG || scCondH || scCondI || scCondJ;
 
   if (isShortContra) {
     signal = 'SHORT_CONTRA';
@@ -1914,10 +2034,14 @@ async function startScan() {
         // V8: taker data dari klines field[9]
         const takerData = calcTakerData(klines);
 
+        // V9.4: pump freshness detection
+        const pumpFresh = calcPumpFreshness(klines);
+
         results.push({
           ...coin, ma7, ma25, ma99, maAlign, rsi, cmf, trend, nearSR,
           spikePct, dumpPct, distMA7, volSurge, upperWick, lowerWick,
           takerFromKlines: takerData,
+          pumpFresh,
           oc: {}
         });
       } catch(e) {}
@@ -2020,6 +2144,9 @@ function render() {
 
   // ── ALERT CHECK ──
   checkAndFireAlerts(data);
+
+  // ── BACKTEST AUTO-LOG ──
+  btLogSignals(data);
 
   document.getElementById('fn-lb').textContent = B.LONG_BOTTOM.length;
   document.getElementById('fn-le').textContent = B.LONG_EARLY.length;
@@ -2156,6 +2283,14 @@ function makeCard(c, ccls) {
   if (oc.squeezeFuelHigh)    tags.push({t:'🚨 SQZ FUEL',c:'t-o'});
   if (oc.crowdFlipSustained) tags.push({t:'✅ FLIP 3C',c:'t-r'});
   else if (oc.crowdFlipEarly)tags.push({t:'⚡ FLIP 2C',c:'t-o'});
+  // V9.4 pump freshness tag
+  const pf = c.pumpFresh || {};
+  if (c.signal === 'SHORT_CONTRA' || c.signal === 'SHORT') {
+    if      (pf.freshScore === 3) tags.push({t:`🔥 FRESH`,c:'t-r'});
+    else if (pf.freshScore === 2) tags.push({t:`⚡ FRESH`,c:'t-o'});
+    else if (pf.freshScore === 1) tags.push({t:`⏳ STALE`,c:'t-y'});
+    else if (pf.pumpAge >= 4)     tags.push({t:`💤 STALE`,c:'t-b'});
+  }
   if (oc.squeezeDivergence)  tags.push({t:'DIVG SQZ',c:'t-o'});
   if (oc.smartMoneyShort)    tags.push({t:'SM SHORT↓',c:'t-r'});
   if (oc.takerBuyR != null && oc.takerBuyR > 0.60) tags.push({t:'BUY DOM',c:'t-g'});
@@ -2661,6 +2796,698 @@ function calc() {
   document.getElementById('oTP1').textContent    = fmtPrice(tp1);
   document.getElementById('oTP2').textContent    = fmtPrice(tp2);
   document.getElementById('oLevel').textContent  = lvl;
+}
+<!-- ══════════════════════════════════════════ -->
+<!-- BACKTEST PANEL V9.5                        -->
+<!-- Kombinasi Opsi 1 (Historical) + Opsi 2 (Forward Log) -->
+<!-- ══════════════════════════════════════════ -->
+<div id="bt-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;overflow-y:auto">
+<div id="bt-panel" style="max-width:900px;margin:24px auto;background:#1a1a2e;border:1px solid #7c3aed;border-radius:12px;padding:20px;font-family:monospace;color:#e2e8f0">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:700;color:#a78bfa">🔬 BACKTEST ENGINE V9.5</div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px">Opsi 1: Historical Replay (20 hari) · Opsi 2: Forward Log (akumulasi real)</div>
+    </div>
+    <button onclick="closeBacktest()" style="background:#ef4444;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px">✕ Tutup</button>
+  </div>
+
+  <!-- TABS -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid #2d2d4e;padding-bottom:12px">
+    <button class="bt-tab active" id="bt-tab-hist" onclick="btSwitchTab('hist')">📈 Historical Replay</button>
+    <button class="bt-tab" id="bt-tab-fwd"  onclick="btSwitchTab('fwd')">📋 Forward Log</button>
+    <button class="bt-tab" id="bt-tab-stat" onclick="btSwitchTab('stat')">📊 Statistics</button>
+  </div>
+
+  <!-- ── TAB 1: HISTORICAL REPLAY ── -->
+  <div id="bt-hist" class="bt-tabcontent">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px">
+      <div>
+        <label style="font-size:11px;color:#94a3b8">Symbol (kosong = scan 20 coin)</label>
+        <input id="bt-sym" placeholder="misal: HYPEUSDT" style="width:100%;background:#0f0f23;border:1px solid #334155;color:#e2e8f0;padding:6px 8px;border-radius:6px;font-size:12px;margin-top:4px;box-sizing:border-box">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#94a3b8">Signal Filter</label>
+        <select id="bt-sig" style="width:100%;background:#0f0f23;border:1px solid #334155;color:#e2e8f0;padding:6px 8px;border-radius:6px;font-size:12px;margin-top:4px;box-sizing:border-box">
+          <option value="all">Semua Signal</option>
+          <option value="SHORT_CONTRA" selected>SHORT CONTRA</option>
+          <option value="LONG_BOTTOM">LONG BOTTOM</option>
+          <option value="SHORT">SHORT</option>
+          <option value="LONG_EARLY">LONG EARLY</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#94a3b8">Min Conviction</label>
+        <select id="bt-cv" style="width:100%;background:#0f0f23;border:1px solid #334155;color:#e2e8f0;padding:6px 8px;border-radius:6px;font-size:12px;margin-top:4px;box-sizing:border-box">
+          <option value="5">CV ≥ 5</option>
+          <option value="6" selected>CV ≥ 6</option>
+          <option value="7">CV ≥ 7</option>
+          <option value="8">CV ≥ 8</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#94a3b8">Outcome Window</label>
+        <select id="bt-win" style="width:100%;background:#0f0f23;border:1px solid #334155;color:#e2e8f0;padding:6px 8px;border-radius:6px;font-size:12px;margin-top:4px;box-sizing:border-box">
+          <option value="4">4H</option>
+          <option value="8" selected>8H</option>
+          <option value="24">24H</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+      <button onclick="runHistoricalBacktest()" id="bt-run-btn" style="background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none;border-radius:6px;padding:8px 20px;cursor:pointer;font-size:13px;font-weight:600">▶ Run Historical Backtest</button>
+      <div id="bt-hist-progress" style="font-size:12px;color:#64748b"></div>
+    </div>
+    <div id="bt-hist-summary" style="display:none;background:#0f0f23;border-radius:8px;padding:12px;margin-bottom:12px;border:1px solid #2d2d4e"></div>
+    <div id="bt-hist-table" style="overflow-x:auto;max-height:400px;overflow-y:auto"></div>
+  </div>
+
+  <!-- ── TAB 2: FORWARD LOG ── -->
+  <div id="bt-fwd" class="bt-tabcontent" style="display:none">
+    <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;color:#94a3b8">Auto-log saat scan:</span>
+        <button id="bt-autolog-btn" onclick="toggleAutoLog()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">🔴 OFF</button>
+        <select id="bt-log-mincv" style="background:#0f0f23;border:1px solid #334155;color:#e2e8f0;padding:5px 8px;border-radius:6px;font-size:12px">
+          <option value="5">Log CV ≥ 5</option>
+          <option value="6" selected>Log CV ≥ 6</option>
+          <option value="7">Log CV ≥ 7</option>
+        </select>
+      </div>
+      <button onclick="btCheckOutcomes()" style="background:#0f172a;color:#38bdf8;border:1px solid #38bdf8;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">🔄 Check Outcomes</button>
+      <button onclick="btExportCSV()" style="background:#0f172a;color:#4ade80;border:1px solid #4ade80;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">⬇ Export CSV</button>
+      <button onclick="btClearLog()" style="background:#0f172a;color:#ef4444;border:1px solid #ef4444;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px">🗑 Clear Log</button>
+      <span id="bt-fwd-count" style="font-size:12px;color:#64748b;margin-left:auto">0 entri tersimpan</span>
+    </div>
+    <div id="bt-fwd-table" style="overflow-x:auto;max-height:450px;overflow-y:auto">
+      <div style="color:#64748b;font-size:12px;text-align:center;padding:40px">Log kosong. Aktifkan auto-log lalu jalankan scan.</div>
+    </div>
+  </div>
+
+  <!-- ── TAB 3: STATISTICS ── -->
+  <div id="bt-stat" class="bt-tabcontent" style="display:none">
+    <div id="bt-stat-content" style="color:#64748b;font-size:12px;text-align:center;padding:40px">
+      Jalankan Historical Backtest atau kumpulkan Forward Log untuk melihat statistik.
+    </div>
+  </div>
+
+</div>
+</div>
+
+<style>
+.bt-tab {
+  background: #0f0f23;
+  color: #64748b;
+  border: 1px solid #2d2d4e;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: monospace;
+  transition: all 0.2s;
+}
+.bt-tab.active {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.bt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.bt-table th {
+  background: #0f0f23;
+  color: #94a3b8;
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid #2d2d4e;
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+.bt-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #1e293b;
+  white-space: nowrap;
+}
+.bt-table tr:hover td { background: #1e1e3a; }
+.bt-win  { color: #4ade80; font-weight: 700; }
+.bt-loss { color: #f87171; font-weight: 700; }
+.bt-pend { color: #fbbf24; }
+.bt-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.bt-stat-card {
+  background: #0f0f23;
+  border: 1px solid #2d2d4e;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.bt-stat-val { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.bt-stat-lbl { font-size: 11px; color: #64748b; }
+</style>
+
+<script>
+// ══════════════════════════════════════════
+// BACKTEST ENGINE V9.5
+// Kombinasi: Historical Replay + Forward Log
+// ══════════════════════════════════════════
+
+let btAutoLog    = false;
+let btMinCV      = 6;
+let btForwardLog = [];   // array of {sym, signal, cv, price, ts, entryPrice, outcome4H, outcome8H, outcome24H, status}
+
+// Load forward log dari localStorage
+try {
+  const saved = localStorage.getItem('bt_forward_log_v95');
+  if (saved) btForwardLog = JSON.parse(saved);
+} catch(e) {}
+
+function openBacktest() {
+  document.getElementById('bt-overlay').style.display = 'block';
+  btRenderForwardLog();
+  btRenderStats();
+}
+function closeBacktest() {
+  document.getElementById('bt-overlay').style.display = 'none';
+}
+function btSwitchTab(tab) {
+  ['hist','fwd','stat'].forEach(t => {
+    document.getElementById('bt-'+t).style.display = t === tab ? '' : 'none';
+    document.getElementById('bt-tab-'+t).classList.toggle('active', t === tab);
+  });
+  if (tab === 'stat') btRenderStats();
+  if (tab === 'fwd')  btRenderForwardLog();
+}
+
+// ─────────────────────────────────────────
+// AUTO-LOG TOGGLE
+// ─────────────────────────────────────────
+function toggleAutoLog() {
+  btAutoLog = !btAutoLog;
+  btMinCV   = parseInt(document.getElementById('bt-log-mincv').value) || 6;
+  const btn = document.getElementById('bt-autolog-btn');
+  btn.textContent = btAutoLog ? '🟢 ON' : '🔴 OFF';
+  btn.style.color = btAutoLog ? '#4ade80' : '#94a3b8';
+  btn.style.borderColor = btAutoLog ? '#4ade80' : '#334155';
+}
+
+// Dipanggil dari renderAll() setiap kali scan selesai
+function btLogSignals(items) {
+  if (!btAutoLog) return;
+  btMinCV = parseInt(document.getElementById('bt-log-mincv').value) || 6;
+  const now = Date.now();
+  let added = 0;
+  items.forEach(item => {
+    if (!item.signal || item.conviction < btMinCV) return;
+    // Hindari duplikat dalam 30 menit
+    const recent = btForwardLog.find(e => e.sym === item.sym && (now - e.ts) < 30*60*1000);
+    if (recent) return;
+    btForwardLog.push({
+      sym:       item.sym,
+      signal:    item.signal,
+      cv:        item.conviction,
+      price:     parseFloat(item.price),
+      ts:        now,
+      fr:        parseFloat(item.fr)*100,
+      rsi:       item.rsi,
+      cmf:       item.cmf,
+      pc:        parseFloat(item.pc),
+      freshScore: (item.pumpFresh||{}).freshScore || 0,
+      pumpAge:   (item.pumpFresh||{}).pumpAge || 99,
+      globalLSR: (item.oc||{}).globalLSR || null,
+      takerSellR:(item.oc||{}).takerSellR || null,
+      outcome4H:  null,
+      outcome8H:  null,
+      outcome24H: null,
+      status:    'pending'
+    });
+    added++;
+  });
+  if (added > 0) {
+    btSaveLog();
+    btRenderForwardLog();
+  }
+}
+
+function btSaveLog() {
+  try { localStorage.setItem('bt_forward_log_v95', JSON.stringify(btForwardLog)); } catch(e) {}
+}
+
+// ─────────────────────────────────────────
+// CHECK OUTCOMES — fetch harga sekarang vs entry
+// ─────────────────────────────────────────
+async function btCheckOutcomes() {
+  const pending = btForwardLog.filter(e => e.status === 'pending');
+  if (pending.length === 0) { alert('Tidak ada entri pending.'); return; }
+
+  document.getElementById('bt-fwd-count').textContent = 'Checking outcomes...';
+  const now = Date.now();
+
+  // Kumpulkan unique symbols
+  const syms = [...new Set(pending.map(e => e.sym))];
+  const prices = {};
+
+  await Promise.all(syms.map(async sym => {
+    try {
+      const d = await fetchJSON(`https://fapi.binance.com/fapi/v1/ticker/price?symbol=${sym}`);
+      prices[sym] = parseFloat(d.price);
+    } catch(e) {}
+  }));
+
+  let updated = 0;
+  btForwardLog.forEach(entry => {
+    if (entry.status !== 'pending') return;
+    const cur = prices[entry.sym];
+    if (!cur) return;
+
+    const elapsed = (now - entry.ts) / (1000 * 3600); // jam
+    const isShort = entry.signal.includes('SHORT');
+    const ret = isShort
+      ? ((entry.price - cur) / entry.price) * 100   // SHORT: profit kalau harga turun
+      : ((cur - entry.price) / entry.price) * 100;  // LONG: profit kalau harga naik
+
+    // Update outcome sesuai elapsed time
+    if (elapsed >= 4  && entry.outcome4H  === null) entry.outcome4H  = parseFloat(ret.toFixed(2));
+    if (elapsed >= 8  && entry.outcome8H  === null) entry.outcome8H  = parseFloat(ret.toFixed(2));
+    if (elapsed >= 24 && entry.outcome24H === null) entry.outcome24H = parseFloat(ret.toFixed(2));
+
+    // Update status berdasarkan outcome yang tersedia
+    const mainOutcome = entry.outcome8H ?? entry.outcome4H ?? entry.outcome24H;
+    if (mainOutcome !== null) {
+      entry.status = mainOutcome > 1.5 ? 'win' : mainOutcome < -2 ? 'loss' : 'neutral';
+      updated++;
+    }
+  });
+
+  btSaveLog();
+  btRenderForwardLog();
+  btRenderStats();
+  document.getElementById('bt-fwd-count').textContent = `${btForwardLog.length} entri · ${updated} diupdate`;
+}
+
+// ─────────────────────────────────────────
+// RENDER FORWARD LOG TABLE
+// ─────────────────────────────────────────
+function btRenderForwardLog() {
+  const el = document.getElementById('bt-fwd-table');
+  const cnt = document.getElementById('bt-fwd-count');
+  cnt.textContent = `${btForwardLog.length} entri tersimpan`;
+
+  if (btForwardLog.length === 0) {
+    el.innerHTML = '<div style="color:#64748b;font-size:12px;text-align:center;padding:40px">Log kosong. Aktifkan auto-log lalu jalankan scan.</div>';
+    return;
+  }
+
+  const rows = [...btForwardLog].reverse().map(e => {
+    const dt  = new Date(e.ts).toLocaleString('id-ID',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const sigColor = e.signal.includes('SHORT') ? '#f87171' : '#4ade80';
+    const stCls = e.status === 'win' ? 'bt-win' : e.status === 'loss' ? 'bt-loss' : 'bt-pend';
+    const stTxt = e.status === 'win' ? '✅ WIN' : e.status === 'loss' ? '❌ LOSS' : e.status === 'neutral' ? '➖ FLAT' : '⏳ Pending';
+    const o4  = e.outcome4H  !== null ? `<span class="${e.outcome4H  > 0 ? 'bt-win':'bt-loss'}">${e.outcome4H > 0?'+':''}${e.outcome4H}%</span>` : '—';
+    const o8  = e.outcome8H  !== null ? `<span class="${e.outcome8H  > 0 ? 'bt-win':'bt-loss'}">${e.outcome8H > 0?'+':''}${e.outcome8H}%</span>` : '—';
+    const o24 = e.outcome24H !== null ? `<span class="${e.outcome24H > 0 ? 'bt-win':'bt-loss'}">${e.outcome24H > 0?'+':''}${e.outcome24H}%</span>` : '—';
+    const lsr = e.globalLSR  !== null ? e.globalLSR.toFixed(2) : '—';
+    const tkr = e.takerSellR !== null ? `${(e.takerSellR*100).toFixed(0)}%` : '—';
+    const fresh = e.freshScore > 0 ? `🔥${e.freshScore}` : '—';
+    return `<tr>
+      <td>${dt}</td>
+      <td style="color:#e2e8f0;font-weight:700">${e.sym.replace('USDT','')}</td>
+      <td style="color:${sigColor}">${e.signal.replace('_',' ')}</td>
+      <td style="color:#a78bfa;font-weight:700">${e.cv}</td>
+      <td>$${e.price}</td>
+      <td>${e.rsi?.toFixed(0)||'—'}</td>
+      <td>${e.cmf?.toFixed(2)||'—'}</td>
+      <td>${lsr}</td>
+      <td>${tkr}</td>
+      <td>${fresh}</td>
+      <td>${o4}</td>
+      <td>${o8}</td>
+      <td>${o24}</td>
+      <td class="${stCls}">${stTxt}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table class="bt-table">
+    <thead><tr>
+      <th>Waktu</th><th>Coin</th><th>Signal</th><th>CV</th><th>Harga</th>
+      <th>RSI</th><th>CMF</th><th>L/S</th><th>Taker Sell</th><th>Fresh</th>
+      <th>4H</th><th>8H</th><th>24H</th><th>Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─────────────────────────────────────────
+// EXPORT CSV
+// ─────────────────────────────────────────
+function btExportCSV() {
+  if (btForwardLog.length === 0) { alert('Log kosong.'); return; }
+  const headers = ['Waktu','Symbol','Signal','CV','Harga','RSI','CMF','L/S Ratio','Taker Sell%','FreshScore','PumpAge','Return 4H','Return 8H','Return 24H','Status'];
+  const rows = btForwardLog.map(e => [
+    new Date(e.ts).toLocaleString('id-ID'),
+    e.sym, e.signal, e.cv, e.price,
+    e.rsi?.toFixed(1)||'', e.cmf?.toFixed(3)||'',
+    e.globalLSR?.toFixed(2)||'', e.takerSellR ? (e.takerSellR*100).toFixed(0)+'%' : '',
+    e.freshScore, e.pumpAge,
+    e.outcome4H??'', e.outcome8H??'', e.outcome24H??'', e.status
+  ].join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `backtest_log_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+}
+
+function btClearLog() {
+  if (!confirm('Hapus semua forward log? Tidak bisa di-undo.')) return;
+  btForwardLog = [];
+  btSaveLog();
+  btRenderForwardLog();
+  btRenderStats();
+}
+
+// ─────────────────────────────────────────
+// HISTORICAL REPLAY ENGINE
+// ─────────────────────────────────────────
+let btHistResults = [];
+
+async function runHistoricalBacktest() {
+  const btn      = document.getElementById('bt-run-btn');
+  const progress = document.getElementById('bt-hist-progress');
+  const symInput = document.getElementById('bt-sym').value.trim().toUpperCase();
+  const sigFilter= document.getElementById('bt-sig').value;
+  const minCV    = parseInt(document.getElementById('bt-cv').value);
+  const winH     = parseInt(document.getElementById('bt-win').value);
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Running...';
+  btHistResults = [];
+  document.getElementById('bt-hist-summary').style.display = 'none';
+  document.getElementById('bt-hist-table').innerHTML = '';
+
+  // Tentukan daftar coin yang akan di-backtest
+  let symbols = [];
+  if (symInput) {
+    symbols = [symInput.endsWith('USDT') ? symInput : symInput + 'USDT'];
+  } else {
+    // Ambil 25 coin dengan volume tertinggi dari allData jika sudah scan, atau default list
+    if (allData && allData.length > 0) {
+      symbols = [...allData].sort((a,b) => b.vol - a.vol).slice(0, 25).map(x => x.sym);
+    } else {
+      symbols = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','AVAXUSDT',
+                 'LINKUSDT','DOTUSDT','ADAUSDT','MATICUSDT','LTCUSDT','NEARUSDT','APTUSDT','ARBUSDT',
+                 'OPUSDT','INJUSDT','TIAUSDT','SEIUSDT','STXUSDT'];
+    }
+  }
+
+  progress.textContent = `Fetching ${symbols.length} coin...`;
+
+  let signalsFound = 0;
+  let processed = 0;
+
+  for (const sym of symbols) {
+    try {
+      progress.textContent = `[${++processed}/${symbols.length}] ${sym}`;
+
+      // Fetch 200 candle 1H (±8 hari) untuk replay
+      const klines = await fetchJSON(
+        `https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=1h&limit=200`
+      );
+      if (!klines || klines.length < winH + 30) continue;
+
+      // Replay: jalankan sinyal di setiap candle dari candle ke-30 hingga candle ke-(length-winH)
+      const replayEnd = klines.length - winH;
+
+      for (let i = 30; i < replayEnd; i++) {
+        const slice  = klines.slice(0, i + 1);
+        const closes = slice.map(k => parseFloat(k[4]));
+        const price  = closes[closes.length - 1];
+        const opens  = slice.map(k => parseFloat(k[1]));
+        const highs  = slice.map(k => parseFloat(k[2]));
+        const lows   = slice.map(k => parseFloat(k[3]));
+        const vols   = slice.map(k => parseFloat(k[5]));
+
+        // Hitung indicator sederhana
+        const ma7   = closes.slice(-7).reduce((s,v)=>s+v,0)/7;
+        const rsi   = calcRSI(closes.slice(-15));
+        const cmf   = calcCMF(highs.slice(-20), lows.slice(-20), closes.slice(-20), vols.slice(-20));
+        const spikePct = calcSpikePct(closes, price);
+        const dumpPct  = calcDumpPct(closes, price);
+        const volSurge = calcVolSurge(slice.slice(-21));
+        const distMA7  = calcDistMA7(ma7, price);
+        const upperWick = calcUpperWick(slice.slice(-1)[0]);
+        const pumpFresh = calcPumpFreshness(slice.slice(-6));
+
+        // FR tidak tersedia di klines — gunakan estimasi dari FR history atau skip
+        const fr = 0; // FR tidak bisa di-backtest dari klines historis
+
+        // Hitung pc_v: % change dari 24 candle lalu
+        const price24hAgo = closes.length >= 24 ? closes[closes.length - 25] : closes[0];
+        const pc_v = ((price - price24hAgo) / price24hAgo) * 100;
+
+        const mockItem = {
+          sym, price, fr, rsi, cmf, spikePct, dumpPct, distMA7,
+          volSurge, upperWick, pc: pc_v.toFixed(2),
+          maAlign: price > ma7 ? 'bull' : 'bear',
+          trend: price > ma7 ? 'up' : 'down',
+          nearSR: 'neutral',
+          vol: vols.slice(-24).reduce((s,v)=>s+v,0) * price,
+          pumpFresh,
+          thin: { thinScore: 0 },
+          oc: {}
+        };
+
+        // Klasifikasikan signal
+        const classified = classifySignal(mockItem);
+        if (!classified || classified === 'WATCH') continue;
+
+        // Filter signal
+        if (sigFilter !== 'all' && classified !== sigFilter) continue;
+
+        const { conviction } = calcConviction(mockItem, classified);
+        if (conviction < minCV) continue;
+
+        // Hitung outcome: bandingkan harga candle ke-i+winH vs harga sekarang
+        const futureCandle = klines[i + winH];
+        const futurePrice  = futureCandle ? parseFloat(futureCandle[4]) : null;
+        let returnPct = null;
+        let outcome = 'pending';
+
+        if (futurePrice) {
+          const isShort = classified.includes('SHORT');
+          returnPct = isShort
+            ? ((price - futurePrice) / price) * 100
+            : ((futurePrice - price) / price) * 100;
+          returnPct = parseFloat(returnPct.toFixed(2));
+          outcome = returnPct > 1.5 ? 'win' : returnPct < -2 ? 'loss' : 'neutral';
+        }
+
+        const candle = klines[i];
+        const ts = candle[0];
+
+        btHistResults.push({
+          sym, signal: classified, conviction, price,
+          ts, rsi: rsi?.toFixed(1)||'—', cmf: cmf?.toFixed(2)||'—',
+          pc: pc_v.toFixed(1), freshScore: pumpFresh.freshScore,
+          returnPct, outcome
+        });
+        signalsFound++;
+      }
+
+      // Small delay to avoid rate limit
+      await new Promise(r => setTimeout(r, 80));
+
+    } catch(err) {
+      // Skip coin yang error
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Run Historical Backtest';
+  progress.textContent = `Selesai: ${signalsFound} signal ditemukan dari ${symbols.length} coin`;
+
+  btRenderHistResults(sigFilter, winH);
+  btRenderStats();
+}
+
+// ─────────────────────────────────────────
+// RENDER HISTORICAL RESULTS
+// ─────────────────────────────────────────
+function btRenderHistResults(sigFilter, winH) {
+  const el = document.getElementById('bt-hist-table');
+  const sumEl = document.getElementById('bt-hist-summary');
+
+  if (btHistResults.length === 0) {
+    el.innerHTML = '<div style="color:#64748b;font-size:12px;text-align:center;padding:30px">Tidak ada signal ditemukan dengan kriteria ini.</div>';
+    sumEl.style.display = 'none';
+    return;
+  }
+
+  // Hitung statistik
+  const total   = btHistResults.length;
+  const wins    = btHistResults.filter(r => r.outcome === 'win').length;
+  const losses  = btHistResults.filter(r => r.outcome === 'loss').length;
+  const neutral = btHistResults.filter(r => r.outcome === 'neutral').length;
+  const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : 0;
+  const avgRet  = btHistResults.filter(r => r.returnPct !== null)
+                   .reduce((s,r) => s + r.returnPct, 0) / (btHistResults.filter(r => r.returnPct !== null).length || 1);
+
+  const wrColor = parseFloat(winRate) >= 60 ? '#4ade80' : parseFloat(winRate) >= 45 ? '#fbbf24' : '#f87171';
+
+  sumEl.style.display = '';
+  sumEl.innerHTML = `
+    <div class="bt-stat-grid">
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:${wrColor}">${winRate}%</div>
+        <div class="bt-stat-lbl">Win Rate</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#4ade80">${wins}</div>
+        <div class="bt-stat-lbl">WIN ✅</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#f87171">${losses}</div>
+        <div class="bt-stat-lbl">LOSS ❌</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#94a3b8">${neutral}</div>
+        <div class="bt-stat-lbl">FLAT ➖</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:${avgRet >= 0 ? '#4ade80':'#f87171'}">${avgRet >= 0?'+':''}${avgRet.toFixed(1)}%</div>
+        <div class="bt-stat-lbl">Avg Return (${winH}H)</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#a78bfa">${total}</div>
+        <div class="bt-stat-lbl">Total Signal</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:#64748b">⚠️ Catatan: FR tidak tersedia di historical klines — skor conviction historical mungkin lebih rendah dari real-time scan.</div>
+  `;
+
+  const rows = btHistResults.slice().reverse().map(r => {
+    const dt  = new Date(r.ts).toLocaleString('id-ID',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const sigColor = r.signal.includes('SHORT') ? '#f87171' : '#4ade80';
+    const stCls = r.outcome === 'win' ? 'bt-win' : r.outcome === 'loss' ? 'bt-loss' : 'bt-pend';
+    const stTxt = r.outcome === 'win' ? '✅ WIN' : r.outcome === 'loss' ? '❌ LOSS' : '➖ FLAT';
+    const retTxt = r.returnPct !== null
+      ? `<span class="${r.returnPct > 0 ? 'bt-win':'bt-loss'}">${r.returnPct > 0?'+':''}${r.returnPct}%</span>` : '—';
+    const fresh = r.freshScore > 0 ? `🔥${r.freshScore}` : '—';
+    return `<tr>
+      <td>${dt}</td>
+      <td style="color:#e2e8f0;font-weight:700">${r.sym.replace('USDT','')}</td>
+      <td style="color:${sigColor}">${r.signal.replace('_',' ')}</td>
+      <td style="color:#a78bfa;font-weight:700">${r.conviction}</td>
+      <td>$${typeof r.price === 'number' ? r.price.toFixed(4) : r.price}</td>
+      <td>${r.rsi}</td>
+      <td>${r.cmf}</td>
+      <td>${r.pc}%</td>
+      <td>${fresh}</td>
+      <td>${retTxt}</td>
+      <td class="${stCls}">${stTxt}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `<table class="bt-table">
+    <thead><tr>
+      <th>Waktu</th><th>Coin</th><th>Signal</th><th>CV</th><th>Harga</th>
+      <th>RSI</th><th>CMF</th><th>PC 24H</th><th>Fresh</th>
+      <th>Return ${winH}H</th><th>Outcome</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+// ─────────────────────────────────────────
+// STATISTICS DASHBOARD (gabungan hist + fwd)
+// ─────────────────────────────────────────
+function btRenderStats() {
+  const el = document.getElementById('bt-stat-content');
+  const all = [
+    ...btHistResults,
+    ...btForwardLog.filter(e => e.status !== 'pending')
+  ];
+  if (all.length === 0) {
+    el.innerHTML = '<div style="color:#64748b;font-size:12px;text-align:center;padding:40px">Belum ada data. Jalankan Historical Backtest atau kumpulkan Forward Log.</div>';
+    return;
+  }
+
+  // Per-signal stats
+  const signals = [...new Set(all.map(r => r.signal))];
+  const sigStats = signals.map(sig => {
+    const group  = all.filter(r => r.signal === sig);
+    const wins   = group.filter(r => r.outcome === 'win' || r.status === 'win').length;
+    const losses = group.filter(r => r.outcome === 'loss' || r.status === 'loss').length;
+    const total  = wins + losses;
+    const wr     = total > 0 ? ((wins/total)*100).toFixed(0) : '—';
+    const rets   = group.map(r => r.returnPct ?? r.outcome8H ?? r.outcome4H).filter(v => v !== null && v !== undefined);
+    const avg    = rets.length > 0 ? (rets.reduce((s,v)=>s+v,0)/rets.length).toFixed(1) : '—';
+    return { sig, wins, losses, total, wr, avg };
+  });
+
+  const globalWins   = all.filter(r => r.outcome === 'win'  || r.status === 'win').length;
+  const globalLosses = all.filter(r => r.outcome === 'loss' || r.status === 'loss').length;
+  const globalTotal  = globalWins + globalLosses;
+  const globalWR     = globalTotal > 0 ? ((globalWins/globalTotal)*100).toFixed(1) : '—';
+  const globalColor  = parseFloat(globalWR) >= 60 ? '#4ade80' : parseFloat(globalWR) >= 45 ? '#fbbf24' : '#f87171';
+
+  const sigRows = sigStats.map(s => {
+    const sigColor = s.sig.includes('SHORT') ? '#f87171' : '#4ade80';
+    const wrColor  = parseFloat(s.wr) >= 60 ? '#4ade80' : parseFloat(s.wr) >= 45 ? '#fbbf24' : '#f87171';
+    return `<tr>
+      <td style="color:${sigColor};font-weight:700">${s.sig.replace('_',' ')}</td>
+      <td style="color:#a78bfa">${s.total}</td>
+      <td style="color:#4ade80">${s.wins}</td>
+      <td style="color:#f87171">${s.losses}</td>
+      <td style="color:${wrColor};font-weight:700">${s.wr}%</td>
+      <td style="color:${parseFloat(s.avg)>=0?'#4ade80':'#f87171'}">${s.avg !== '—' ? (parseFloat(s.avg)>=0?'+':'')+s.avg+'%' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="bt-stat-grid" style="margin-bottom:16px">
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:${globalColor}">${globalWR}%</div>
+        <div class="bt-stat-lbl">Overall Win Rate</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#4ade80">${globalWins}</div>
+        <div class="bt-stat-lbl">Total WIN</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#f87171">${globalLosses}</div>
+        <div class="bt-stat-lbl">Total LOSS</div>
+      </div>
+      <div class="bt-stat-card">
+        <div class="bt-stat-val" style="color:#a78bfa">${all.length}</div>
+        <div class="bt-stat-lbl">Total Signal</div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#94a3b8;margin-bottom:8px;font-weight:600">Per Signal Type</div>
+    <table class="bt-table" style="margin-bottom:16px">
+      <thead><tr><th>Signal</th><th>Total</th><th>WIN</th><th>LOSS</th><th>Win Rate</th><th>Avg Return</th></tr></thead>
+      <tbody>${sigRows}</tbody>
+    </table>
+    <div style="font-size:11px;color:#475569">Hist: ${btHistResults.length} signal · Fwd: ${btForwardLog.length} entri (${btForwardLog.filter(e=>e.status!=='pending').length} resolved)</div>
+  `;
+}
+
+// Helper: calcUpperWick dari satu kline
+function calcUpperWick(k) {
+  if (!k) return 0;
+  const o = +k[1], h = +k[2], c = +k[4];
+  const body = Math.abs(c - o);
+  const wick = h - Math.max(o, c);
+  if (body + wick === 0) return 0;
+  return parseFloat((wick / (body + wick) * 100).toFixed(1));
 }
 </script>
 </body>
