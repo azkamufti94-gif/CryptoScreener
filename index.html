@@ -2797,14 +2797,14 @@ function calc() {
   document.getElementById('oTP2').textContent    = fmtPrice(tp2);
   document.getElementById('oLevel').textContent  = lvl;
 }
-<!-- ══════════════════════════════════════════ -->
-<!-- BACKTEST PANEL V9.5                        -->
-<!-- Kombinasi Opsi 1 (Historical) + Opsi 2 (Forward Log) -->
-<!-- ══════════════════════════════════════════ -->
+
+
+
+
 <div id="bt-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;overflow-y:auto">
 <div id="bt-panel" style="max-width:900px;margin:24px auto;background:#1a1a2e;border:1px solid #7c3aed;border-radius:12px;padding:20px;font-family:monospace;color:#e2e8f0">
 
-  <!-- Header -->
+  
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
     <div>
       <div style="font-size:18px;font-weight:700;color:#a78bfa">🔬 BACKTEST ENGINE V9.5</div>
@@ -2813,14 +2813,14 @@ function calc() {
     <button onclick="closeBacktest()" style="background:#ef4444;color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px">✕ Tutup</button>
   </div>
 
-  <!-- TABS -->
+  
   <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid #2d2d4e;padding-bottom:12px">
     <button class="bt-tab active" id="bt-tab-hist" onclick="btSwitchTab('hist')">📈 Historical Replay</button>
     <button class="bt-tab" id="bt-tab-fwd"  onclick="btSwitchTab('fwd')">📋 Forward Log</button>
     <button class="bt-tab" id="bt-tab-stat" onclick="btSwitchTab('stat')">📊 Statistics</button>
   </div>
 
-  <!-- ── TAB 1: HISTORICAL REPLAY ── -->
+  
   <div id="bt-hist" class="bt-tabcontent">
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:14px">
       <div>
@@ -2863,7 +2863,7 @@ function calc() {
     <div id="bt-hist-table" style="overflow-x:auto;max-height:400px;overflow-y:auto"></div>
   </div>
 
-  <!-- ── TAB 2: FORWARD LOG ── -->
+  
   <div id="bt-fwd" class="bt-tabcontent" style="display:none">
     <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
@@ -2885,7 +2885,7 @@ function calc() {
     </div>
   </div>
 
-  <!-- ── TAB 3: STATISTICS ── -->
+  
   <div id="bt-stat" class="bt-tabcontent" style="display:none">
     <div id="bt-stat-content" style="color:#64748b;font-size:12px;text-align:center;padding:40px">
       Jalankan Historical Backtest atau kumpulkan Forward Log untuk melihat statistik.
